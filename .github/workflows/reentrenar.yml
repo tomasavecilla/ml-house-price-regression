@@ -1,0 +1,109 @@
+# Monitoreo y reentrenamiento basado en eventos: cuando llega un lote de
+# casas nuevas a datos/lotes/, se revisa si hay drift o si el modelo se
+# equivoca más. Si pasa algo, se abre un issue (la alerta), se reentrena
+# y, si el modelo nuevo es mejor, se abre un PR para que una persona lo
+# apruebe antes de que llegue a producción.
+#
+# Requiere, en Settings > Actions > General, activar "Allow GitHub
+# Actions to create and approve pull requests".
+name: Reentrenamiento
+
+on:
+  push:
+    branches: [main]
+    paths: ["datos/lotes/**"]
+  # También se puede correr a mano desde la pestaña Actions
+  workflow_dispatch:
+
+# El token del workflow necesita permiso para abrir issues y PRs
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  monitorear:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 baja la historia, para ver qué archivos cambiaron
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      # Las de la API también, porque los tests la prueban
+      - name: Instalar dependencias
+        run: >
+          pip install -r requirements.txt -r requirements-dev.txt
+          -r api/requirements.txt
+
+      # En un push, solo los lotes que llegaron en ese push; a mano,
+      # todos los que hay
+      - name: Buscar los lotes nuevos
+        id: lotes
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            lotes=$(git diff --name-only --diff-filter=AM \
+              "${{ github.event.before }}" "${{ github.sha }}" \
+              -- 'datos/lotes/*.csv')
+          else
+            lotes=$(ls datos/lotes/*.csv)
+          fi
+          echo "lotes=$(echo $lotes)" >> "$GITHUB_OUTPUT"
+
+      - name: Detectar drift y degradación
+        id: drift
+        if: steps.lotes.outputs.lotes != ''
+        run: >
+          python -m monitoreo.detectar_drift ${{ steps.lotes.outputs.lotes }}
+          --resumen resumen_drift.md
+
+      # La alerta: un issue que le llega por mail a quien sigue el repo
+      - name: Abrir un issue de alerta
+        if: steps.drift.outputs.alerta == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh issue create
+          --title "Alerta de monitoreo: ${{ steps.lotes.outputs.lotes }}"
+          --body-file resumen_drift.md
+
+      - name: Reentrenar y comparar con producción
+        id: reentrenar
+        if: steps.drift.outputs.alerta == 'true'
+        run: python reentrenar.py --resumen resumen_reentrenamiento.md
+
+      # Un PR abierto por este workflow no dispara el workflow de CI
+      # (GitHub lo evita para que no haya ciclos), así que los tests del
+      # modelo nuevo se corren acá
+      - name: Probar el modelo nuevo
+        if: steps.reentrenar.outputs.mejoro == 'true'
+        run: pytest
+
+      # Los reportes de Evidently y el MLflow de esta corrida quedan para
+      # descargar desde la página del workflow
+      - name: Guardar reportes y MLflow
+        if: steps.drift.outputs.alerta == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoreo
+          path: |
+            monitoreo/reportes/
+            mlflow.db
+            mlruns/
+
+      # La validación final la hace una persona: el modelo nuevo llega
+      # como PR y solo pasa a producción si alguien lo aprueba
+      - name: Abrir un PR con el modelo nuevo
+        if: steps.reentrenar.outputs.mejoro == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: docker/modelo.joblib
+          branch: reentrenamiento/${{ github.run_number }}
+          commit-message: Reentrenar el modelo con los lotes nuevos
+          title: Modelo reentrenado con los lotes nuevos
+          body-path: resumen_reentrenamiento.md

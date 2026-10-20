@@ -1,0 +1,6 @@
+# Entrenamiento y registro del modelo (las de inferencia están en docker/requirements.txt)
+pandas==3.0.6
+scikit-learn==1.9.1
+mlflow==3.17.1
+# Monitoreo de drift
+evidently==0.7.23

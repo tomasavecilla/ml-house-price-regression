@@ -1,0 +1,6 @@
+# Lo de inferencia (igual que docker/requirements.txt) más el servidor web
+fastapi==0.156.1
+uvicorn==0.54.0
+pandas==3.0.6
+scikit-learn==1.9.1
+joblib==1.6.0

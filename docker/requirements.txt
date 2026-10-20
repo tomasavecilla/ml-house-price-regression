@@ -1,0 +1,4 @@
+# Solo lo necesario para inferencia. scikit-learn tiene que ser la misma versión con la que se entrenó.
+pandas==3.0.6
+scikit-learn==1.9.1
+joblib==1.6.0
