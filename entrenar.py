@@ -255,20 +255,16 @@ def main() -> None:
 
     mlflow.set_tracking_uri(TRACKING_URI)
     mlflow.set_experiment(NOMBRE_MODELO)
-    # Sin nombre, MLflow inventa uno al azar; así se reconoce cada run
-    nombre_run = f"{args.modelo}-{args.imputador}"
-    if args.modelo != "lineal":
-        nombre_run += f"-alpha{args.alpha}"
-    with mlflow.start_run(run_name=nombre_run):
-        mlflow.log_params({
-            "modelo": args.modelo,
-            "imputador": args.imputador,
-            # La regresión lineal no tiene alpha: se registra vacío
-            # para no mostrar un valor que no se usó
-            "alpha": "" if args.modelo == "lineal" else args.alpha,
-            "filas_train": len(X_train),
-            "lotes": ", ".join(args.lotes),
-        })
+    configuracion = {
+        "modelo": args.modelo,
+        "imputador": args.imputador,
+        # La regresión lineal no tiene alpha: se registra vacío para no
+        # mostrar un valor que no se usó
+        "alpha": "" if args.modelo == "lineal" else args.alpha,
+    }
+    with mlflow.start_run() as run:
+        mlflow.log_params({**configuracion, "filas_train": len(X_train),
+                           "lotes": ", ".join(args.lotes)})
         # cv para comparar configuraciones; test para el modelo elegido
         metricas_cv = validar_cruzado(pipeline, X_train, y_train)
         pipeline.fit(X_train, y_train)
@@ -284,10 +280,23 @@ def main() -> None:
             # al cargar; hay que declarar qué tipos puede reconstruir
             skops_trusted_types=["numpy.dtype"],
         )
+        version = info.registered_model_version
+        cliente = mlflow.MlflowClient()
+        # Cada entrenamiento es una versión nueva del mismo modelo: el
+        # run se llama como esa versión
+        cliente.update_run(run.info.run_id,
+                           name=f"{NOMBRE_MODELO} v{version}")
+        # La configuración también queda en la versión, para verla desde
+        # el registro sin entrar al run
+        etiquetas = {**configuracion,
+                     "rmse_cv": f"{metricas_cv['rmse_cv']:.2f}"}
+        for clave, valor in etiquetas.items():
+            cliente.set_model_version_tag(NOMBRE_MODELO, version, clave,
+                                          str(valor))
 
     print(f"RMSE cv: {metricas_cv['rmse_cv']:.2f}  |  "
           f"RMSE test: {metricas['rmse_test']:.2f}  |  "
-          f"versión registrada: {info.registered_model_version}")
+          f"versión registrada: {version}")
 
 
 if __name__ == "__main__":
