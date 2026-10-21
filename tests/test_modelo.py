@@ -13,10 +13,10 @@ from sklearn.pipeline import Pipeline
 import entrenar
 
 MODELO = Path(__file__).resolve().parent.parent / "docker" / "modelo.joblib"
-# El champion actual (ElasticNet, alpha 0.1) tiene RMSE 6.9 en test. Si
+# El champion actual (ElasticNet, alpha 0.1) tiene RMSE 4.9 en test. Si
 # alguien exporta un modelo peor que esto, el CI lo frena antes de que
 # llegue a un contenedor
-RMSE_MAXIMO = 7.5
+RMSE_MAXIMO = 5.5
 
 
 @pytest.fixture(scope="module")

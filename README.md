@@ -60,6 +60,15 @@ python entrenar.py --modelo elasticnet --alpha 0.1
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
+Para elegir hiperparámetros, comparar por `rmse_cv` (validación cruzada
+sobre train) y no por `rmse_test`, que queda para el modelo elegido:
+
+```bash
+for a in 0.01 0.05 0.1 0.2 0.5 1; do
+    python entrenar.py --modelo elasticnet --alpha $a
+done
+```
+
 En la UI, asignar el alias `champion` a la mejor versión y exportarla:
 
 ```bash
