@@ -37,7 +37,7 @@ jobs:
       # uv instala lo mismo que pip pero mucho más rápido, y guarda los
       # paquetes entre corridas: si los requirements no cambiaron, no
       # vuelve a descargar nada
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
           cache-dependency-glob: "**/requirements*.txt"
