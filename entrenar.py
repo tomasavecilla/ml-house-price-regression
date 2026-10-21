@@ -233,38 +233,40 @@ def validar_cruzado(pipeline: Pipeline, X: pd.DataFrame,
     }
 
 
-def main() -> None:
-    """Entrena, evalúa y registra una versión del modelo en MLflow."""
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("--modelo", default="ridge",
-                        choices=["lineal", "lasso", "ridge", "elasticnet"])
-    parser.add_argument("--imputador", choices=["knn", "mediana"],
-                        default="knn")
-    parser.add_argument("--alpha", type=float, default=1.0)
-    parser.add_argument("--lotes", nargs="*", default=[],
-                        help="CSV con casas nuevas para sumar")
-    args = parser.parse_args()
+def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
+                                         "elasticnet"],
+                         imputador: Literal["knn", "mediana"],
+                         alpha: float,
+                         lotes: list[str] | None = None) -> dict:
+    """Entrena una configuración y la registra como versión nueva.
 
-    X_train, X_test, y_train, y_test = cargar_datos(args.lotes)
-    regresor = construir_modelo(args.modelo, args.alpha)
-    pipeline = construir_pipeline(args.imputador, regresor,
+    Args:
+        modelo: el regresor, uno de los que compara el TP.
+        imputador: cómo se completan las variables continuas.
+        alpha: fuerza de la regularización. No se usa en "lineal".
+        lotes: CSV con casas nuevas para sumar a los datos.
+
+    Returns:
+        La versión registrada y las métricas de validación cruzada y de
+        test.
+    """
+    lotes = lotes or []
+    X_train, X_test, y_train, y_test = cargar_datos(lotes)
+    pipeline = construir_pipeline(imputador, construir_modelo(modelo, alpha),
                                   list(X_train.columns))
 
     mlflow.set_tracking_uri(TRACKING_URI)
     mlflow.set_experiment(NOMBRE_MODELO)
     configuracion = {
-        "modelo": args.modelo,
-        "imputador": args.imputador,
+        "modelo": modelo,
+        "imputador": imputador,
         # La regresión lineal no tiene alpha: se registra vacío para no
         # mostrar un valor que no se usó
-        "alpha": "" if args.modelo == "lineal" else args.alpha,
+        "alpha": "" if modelo == "lineal" else alpha,
     }
     with mlflow.start_run() as run:
         mlflow.log_params({**configuracion, "filas_train": len(X_train),
-                           "lotes": ", ".join(args.lotes)})
+                           "lotes": ", ".join(lotes)})
         # cv para comparar configuraciones; test para el modelo elegido
         metricas_cv = validar_cruzado(pipeline, X_train, y_train)
         pipeline.fit(X_train, y_train)
@@ -293,10 +295,29 @@ def main() -> None:
         for clave, valor in etiquetas.items():
             cliente.set_model_version_tag(NOMBRE_MODELO, version, clave,
                                           str(valor))
+    return {"version": version, **metricas_cv, **metricas}
 
-    print(f"RMSE cv: {metricas_cv['rmse_cv']:.2f}  |  "
-          f"RMSE test: {metricas['rmse_test']:.2f}  |  "
-          f"versión registrada: {version}")
+
+def main() -> None:
+    """Entrena, evalúa y registra una versión del modelo en MLflow."""
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--modelo", default="ridge",
+                        choices=["lineal", "lasso", "ridge", "elasticnet"])
+    parser.add_argument("--imputador", choices=["knn", "mediana"],
+                        default="knn")
+    parser.add_argument("--alpha", type=float, default=1.0)
+    parser.add_argument("--lotes", nargs="*", default=[],
+                        help="CSV con casas nuevas para sumar")
+    args = parser.parse_args()
+
+    resultado = entrenar_y_registrar(args.modelo, args.imputador,
+                                     args.alpha, args.lotes)
+    print(f"RMSE cv: {resultado['rmse_cv']:.2f}  |  "
+          f"RMSE test: {resultado['rmse_test']:.2f}  |  "
+          f"versión registrada: {resultado['version']}")
 
 
 if __name__ == "__main__":

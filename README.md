@@ -35,6 +35,7 @@ binario.
 | --- | --- |
 | `TP_regresion_AA1.ipynb` | El TP original: EDA, modelos y comparación |
 | `entrenar.py` | Entrena el pipeline y lo registra en MLflow |
+| `buscar_hiperparametros.py` | Entrena la grilla de modelos e hiperparámetros |
 | `exportar_modelo.py` | Exporta la versión `@champion` a `docker/modelo.joblib` |
 | `inspeccionar_modelo.py` | Muestra qué aprendió el pipeline y viaja en el binario |
 | `docker/` | Inferencia por lotes en un contenedor (ver su README) |
@@ -60,13 +61,13 @@ python entrenar.py --modelo elasticnet --alpha 0.1
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-Para elegir hiperparámetros, comparar por `rmse_cv` (validación cruzada
-sobre train) y no por `rmse_test`, que queda para el modelo elegido:
+Para elegir hiperparámetros, la grilla prueba los 4 modelos del TP con
+los 2 imputadores y 4 valores de alpha (26 versiones, cerca de un minuto
+y medio). Se compara por `rmse_cv` (validación cruzada sobre train), no
+por `rmse_test`, que queda para el modelo elegido:
 
 ```bash
-for a in 0.01 0.05 0.1 0.2 0.5 1; do
-    python entrenar.py --modelo elasticnet --alpha $a
-done
+python buscar_hiperparametros.py
 ```
 
 En la UI, asignar el alias `champion` a la mejor versión y exportarla:
