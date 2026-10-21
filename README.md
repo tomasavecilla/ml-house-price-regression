@@ -43,7 +43,7 @@ binario.
 | `monitoreo/` | Genera lotes de casas nuevas y detecta drift con Evidently |
 | `reentrenar.py` | Reentrena con los lotes y compara contra producción |
 | `tests/` | Tests de la inferencia, la API y el modelo exportado |
-| `.github/workflows/` | CI (`ci.yml`) y reentrenamiento por eventos (`reentrenar.yml`) |
+| `.github/workflows/` | CI (`ci.yml`), entrenamiento en los PR (`entrenamiento.yml`) y reentrenamiento por eventos (`reentrenar.yml`) |
 | `datos/lotes/` | Donde llegan los lotes de casas nuevas |
 
 ## Cómo usarlo
