@@ -34,9 +34,18 @@ def mostrar_aprendido(pipeline: Pipeline) -> None:
         # KNN necesita las casas de train para buscar vecinos
         print(f"\nKNNImputer guarda {imputar._fit_X.shape[0]} casas de "
               "train para buscar vecinos")
-    print(f"\n{type(modelo).__name__}, coeficientes:",
-          np.round(modelo.coef_, 2))
-    print(f"{type(modelo).__name__}, intercepto: {modelo.intercept_:.2f}")
+    # El preprocesamiento reordena las columnas (primero las continuas,
+    # después las discretas): los nombres hay que pedírselos a él, no
+    # tomarlos de la entrada. Vienen como "continuas__RM"
+    nombres = [n.split("__")[-1]
+               for n in preprocesamiento.get_feature_names_out()]
+    print(f"\n{type(modelo).__name__}, coeficientes ordenados por peso.")
+    print("Como las variables están escaladas, cada uno dice cuántos miles"
+          "\nde USD cambia el precio si la variable sube un desvío:")
+    for indice in np.argsort(-np.abs(modelo.coef_)):
+        print(f"  {nombres[indice]:8} {modelo.coef_[indice]:+6.2f}")
+    print(f"Intercepto (precio de una casa promedio): "
+          f"{modelo.intercept_:.2f}")
 
 
 if __name__ == "__main__":
