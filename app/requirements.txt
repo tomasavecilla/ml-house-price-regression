@@ -1,0 +1,5 @@
+# Solo lo que necesita la interfaz: ni scikit-learn ni el modelo, eso
+# vive en la API
+streamlit==1.66.1
+requests==2.34.2
+pandas==3.0.6

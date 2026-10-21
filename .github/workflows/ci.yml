@@ -42,10 +42,13 @@ jobs:
       - name: Correr los tests
         run: pytest
 
-      # Que las dos imágenes se puedan construir. No se publican:
+      # Que las tres imágenes se puedan construir. No se publican:
       # solo se verifica que el Dockerfile no esté roto
       - name: Construir la imagen de inferencia por lotes
         run: docker build -t precio-casas docker/
 
       - name: Construir la imagen de la API
         run: docker build -f api/Dockerfile -t precio-casas-api .
+
+      - name: Construir la imagen de la app del tasador
+        run: docker build -t precio-casas-app app/
