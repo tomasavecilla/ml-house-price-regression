@@ -53,3 +53,40 @@ def test_rechaza_texto_en_un_campo_numerico() -> None:
     modelo."""
     respuesta = cliente.post("/predecir", json={**CASA, "RM": "muchas"})
     assert respuesta.status_code == 422
+
+
+def test_predice_un_lote() -> None:
+    """Devuelve un precio por casa, en el mismo orden."""
+    respuesta = cliente.post("/predecir-lote",
+                             json=[CASA, {**CASA, "RM": 7.5}])
+    assert respuesta.status_code == 200
+    precios = respuesta.json()["precios_estimados"]
+    assert len(precios) == 2
+    # El primero coincide con /predecir: es el mismo pipeline
+    individual = cliente.post("/predecir", json=CASA).json()
+    assert precios[0] == individual["precio_estimado"]
+
+
+def test_explica_sumando_las_contribuciones() -> None:
+    """intercepto + contribuciones == precio: el modelo es lineal."""
+    respuesta = cliente.post("/explicar", json=CASA)
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    # Una contribución por columna de entrada, aunque reordenadas
+    assert set(cuerpo["contribuciones"]) == set(CASA)
+    suma = cuerpo["intercepto"] + sum(cuerpo["contribuciones"].values())
+    # Tolerancia por los redondeos a 2 decimales de cada sumando
+    assert abs(suma - cuerpo["precio_estimado"]) < 0.15
+    individual = cliente.post("/predecir", json=CASA).json()
+    assert cuerpo["precio_estimado"] == individual["precio_estimado"]
+
+
+def test_describe_el_modelo() -> None:
+    """Dice qué regresor e imputador hay en producción."""
+    respuesta = cliente.get("/modelo")
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.json()
+    assert cuerpo["regresor"] in {"LinearRegression", "Ridge", "Lasso",
+                                  "ElasticNet"}
+    assert cuerpo["imputador"] in {"KNNImputer", "SimpleImputer"}
+    assert len(cuerpo["columnas"]) == 12
