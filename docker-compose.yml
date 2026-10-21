@@ -1,0 +1,31 @@
+# Levanta la API y la app del tasador juntas:  docker compose up --build
+# Cada servicio es un contenedor; compose los conecta en una red propia
+# donde se encuentran por nombre (la app llama a http://api:8000).
+services:
+  api:
+    # Se construye desde la raíz porque necesita api/ y docker/modelo.joblib
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports:
+      - "8000:8000"
+    # Compose pregunta cada 5 segundos si la API ya responde; la imagen
+    # no trae curl, así que se usa Python
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/salud')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: app/
+    ports:
+      - "8501:8501"
+    environment:
+      # El nombre del servicio funciona como host dentro de la red
+      API_URL: http://api:8000
+    # La app arranca recién cuando la API pasó el healthcheck
+    depends_on:
+      api:
+        condition: service_healthy

@@ -40,6 +40,8 @@ binario.
 | `inspeccionar_modelo.py` | Muestra qué aprendió el pipeline y viaja en el binario |
 | `docker/` | Inferencia por lotes en un contenedor (ver su README) |
 | `api/` | El mismo modelo servido como API con FastAPI |
+| `app/` | La interfaz del tasador (Streamlit), que solo habla con la API |
+| `docker-compose.yml` | Levanta la API y la app juntas |
 | `monitoreo/` | Genera lotes de casas nuevas y detecta drift con Evidently |
 | `reentrenar.py` | Reentrena con los lotes y compara contra producción |
 | `tests/` | Tests de la inferencia, la API y el modelo exportado |
@@ -97,6 +99,19 @@ Tests y estilo (lo mismo que corre el CI):
 pycodestyle .
 pytest
 ```
+
+## La aplicación del tasador
+
+La app que usaría un tasador de la inmobiliaria: carga una casa, ve el
+precio sugerido y qué variables lo empujan hacia arriba o hacia abajo.
+No tiene el modelo adentro: cada tasación es un pedido a la API.
+
+```bash
+docker compose up --build
+```
+
+- App: <http://localhost:8501>
+- API: <http://localhost:8000/docs>
 
 ## Antes de entregar la carpeta `docker/`
 
