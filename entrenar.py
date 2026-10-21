@@ -14,6 +14,7 @@ Uso:
 import argparse
 import getpass
 import os
+import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -41,6 +42,11 @@ DESCARTADAS = ["B"]
 DISCRETAS = ["CHAS", "RAD"]
 NOMBRE_MODELO = "precio-casas"
 TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+# MLflow 3.17 registra dos veces el mismo tipo de origen de datos y
+# avisa en cada log_input que el origen "se puede interpretar de dos
+# formas". Las dos son la misma, así que el aviso no aporta nada
+warnings.filterwarnings(
+    "ignore", message="The specified dataset source can be interpreted")
 
 
 def leer_dataset() -> pd.DataFrame:
