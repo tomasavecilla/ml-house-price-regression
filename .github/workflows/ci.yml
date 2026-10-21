@@ -15,16 +15,22 @@ jobs:
       # Baja el código del commit que se está probando
       - uses: actions/checkout@v5
 
-      # La misma versión de Python que usamos para entrenar; cache: pip
-      # guarda los paquetes entre corridas para que tarde menos
+      # La misma versión de Python que usamos para entrenar
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-          cache: pip
+
+      # uv instala lo mismo que pip pero mucho más rápido, y guarda los
+      # paquetes entre corridas: si los requirements no cambiaron, no
+      # vuelve a descargar nada
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/requirements*.txt"
 
       - name: Instalar dependencias
         run: >
-          pip install -r requirements.txt -r requirements-dev.txt
+          uv pip install --system -r requirements.txt -r requirements-dev.txt
           -r api/requirements.txt
 
       # Estilo: el código sigue PEP 8 (configuración en setup.cfg)
