@@ -70,8 +70,7 @@ def main() -> None:
     args = parser.parse_args()
 
     generador = np.random.default_rng(args.semilla)
-    datos = pd.read_csv(entrenar.DATOS).drop(columns=entrenar.DESCARTADAS)
-    datos = datos.dropna(subset=[entrenar.OBJETIVO])
+    datos = entrenar.leer_dataset().dropna(subset=[entrenar.OBJETIVO])
 
     lote = elegir_casas(datos, args.tipo, args.filas, generador)
     if args.tipo == "suba-mercado":

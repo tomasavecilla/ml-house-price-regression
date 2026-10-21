@@ -4,8 +4,8 @@ El challenger (modelo nuevo) usa la misma configuración que el
 champion (docker/modelo.joblib), pero se entrena con el dataset
 original más todos los lotes de datos/lotes/. Los dos se evalúan sobre
 el mismo test, que incluye casas de los lotes. Solo si el challenger
-se equivoca menos reemplaza al champion; igual hace falta que una
-persona apruebe el cambio (el PR que abre el workflow).
+se equivoca al menos un 1% menos reemplaza al champion; igual hace
+falta que una persona apruebe el cambio (el PR que abre el workflow).
 
 Uso:
     python reentrenar.py
@@ -24,6 +24,9 @@ from sklearn.base import clone
 import entrenar
 
 MODELO = "docker/modelo.joblib"
+# El challenger tiene que equivocarse al menos un 1% menos: una mejora
+# más chica puede ser ruido, y cambiar de modelo tiene un costo
+MEJORA_MINIMA = 0.01
 
 
 def main() -> None:
@@ -45,7 +48,7 @@ def main() -> None:
     rmse_champion = entrenar.evaluar(champion, X_test, y_test)["rmse_test"]
     metricas = entrenar.evaluar(challenger, X_test, y_test)
     rmse_challenger = metricas["rmse_test"]
-    mejoro = rmse_challenger < rmse_champion
+    mejoro = rmse_challenger < rmse_champion * (1 - MEJORA_MINIMA)
 
     mlflow.set_tracking_uri(entrenar.TRACKING_URI)
     mlflow.set_experiment(entrenar.NOMBRE_MODELO)
@@ -72,7 +75,8 @@ def main() -> None:
         "",
         "El challenger es mejor: reemplaza a docker/modelo.joblib."
         if mejoro else
-        "El challenger no mejora: producción no cambia.",
+        "El challenger no mejora al menos un "
+        f"{MEJORA_MINIMA:.0%}: producción no cambia.",
     ])
     print(resumen)
     if args.resumen:

@@ -25,7 +25,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, cross_validate, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -40,6 +40,23 @@ DESCARTADAS = ["B"]
 DISCRETAS = ["CHAS", "RAD"]
 NOMBRE_MODELO = "precio-casas"
 TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+
+
+def leer_dataset() -> pd.DataFrame:
+    """Lee el dataset original y descarta las filas que no son válidas.
+
+    El dataset del TP agrega a Boston Housing filas con ruido, con
+    valores imposibles como RAD = 10.55 (un índice entero). Se las
+    reconoce con una regla de validez, no por cómo afectan al modelo:
+    Boston registra cada valor con 5 decimales como máximo, y esas
+    filas tienen más.
+
+    Returns:
+        Las casas válidas, sin las columnas de DESCARTADAS.
+    """
+    datos = pd.read_csv(DATOS)
+    con_ruido = ((datos.round(5) != datos) & datos.notna()).any(axis=1)
+    return datos[~con_ruido].drop(columns=DESCARTADAS)
 
 
 def separar(datos: pd.DataFrame
@@ -90,7 +107,7 @@ def cargar_datos(lotes: list[str] | None = None
         una columna por característica; las y tienen el precio (MEDV)
         en miles de dólares.
     """
-    conjuntos = [pd.read_csv(DATOS).drop(columns=DESCARTADAS)]
+    conjuntos = [leer_dataset()]
     conjuntos += [pd.read_csv(lote) for lote in lotes or []]
     partes = [separar(datos) for datos in conjuntos]
     # partes es una lista de (X_train, X_test, y_train, y_test): se
@@ -182,6 +199,40 @@ def evaluar(pipeline: Pipeline, X: pd.DataFrame,
     }
 
 
+def validar_cruzado(pipeline: Pipeline, X: pd.DataFrame,
+                    y: pd.Series) -> dict[str, float]:
+    """Estima las métricas con validación cruzada de 5 particiones.
+
+    Es la métrica para elegir hiperparámetros: usa solo train, así el
+    test queda sin tocar hasta evaluar el modelo elegido. En cada
+    partición se reentrena el pipeline entero, imputación y escalado
+    incluidos, para que nada aprendido se filtre a la validación.
+
+    Args:
+        pipeline: pipeline sin entrenar.
+        X: características de train.
+        y: precios de train, en miles de dólares.
+
+    Returns:
+        Diccionario con rmse_cv, mae_cv y r2_cv (promedio de las 5
+        particiones) y rmse_cv_desvio, cuánto varía el RMSE entre ellas.
+    """
+    particiones = KFold(n_splits=5, shuffle=True, random_state=42)
+    # scikit-learn maximiza los scores: los errores vienen con signo
+    # negativo y se les cambia el signo
+    resultado = cross_validate(pipeline, X, y, cv=particiones, scoring={
+        "rmse": "neg_root_mean_squared_error",
+        "mae": "neg_mean_absolute_error",
+        "r2": "r2",
+    })
+    return {
+        "rmse_cv": float(-resultado["test_rmse"].mean()),
+        "rmse_cv_desvio": float(resultado["test_rmse"].std()),
+        "mae_cv": float(-resultado["test_mae"].mean()),
+        "r2_cv": float(resultado["test_r2"].mean()),
+    }
+
+
 def main() -> None:
     """Entrena, evalúa y registra una versión del modelo en MLflow."""
     parser = argparse.ArgumentParser(
@@ -204,7 +255,11 @@ def main() -> None:
 
     mlflow.set_tracking_uri(TRACKING_URI)
     mlflow.set_experiment(NOMBRE_MODELO)
-    with mlflow.start_run():
+    # Sin nombre, MLflow inventa uno al azar; así se reconoce cada run
+    nombre_run = f"{args.modelo}-{args.imputador}"
+    if args.modelo != "lineal":
+        nombre_run += f"-alpha{args.alpha}"
+    with mlflow.start_run(run_name=nombre_run):
         mlflow.log_params({
             "modelo": args.modelo,
             "imputador": args.imputador,
@@ -214,9 +269,11 @@ def main() -> None:
             "filas_train": len(X_train),
             "lotes": ", ".join(args.lotes),
         })
+        # cv para comparar configuraciones; test para el modelo elegido
+        metricas_cv = validar_cruzado(pipeline, X_train, y_train)
         pipeline.fit(X_train, y_train)
         metricas = evaluar(pipeline, X_test, y_test)
-        mlflow.log_metrics(metricas)
+        mlflow.log_metrics({**metricas_cv, **metricas})
         info = mlflow.sklearn.log_model(
             pipeline,
             name="modelo",
@@ -228,7 +285,8 @@ def main() -> None:
             skops_trusted_types=["numpy.dtype"],
         )
 
-    print(f"RMSE test: {metricas['rmse_test']:.2f}  |  "
+    print(f"RMSE cv: {metricas_cv['rmse_cv']:.2f}  |  "
+          f"RMSE test: {metricas['rmse_test']:.2f}  |  "
           f"versión registrada: {info.registered_model_version}")
 
 
