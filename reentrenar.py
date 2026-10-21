@@ -52,7 +52,10 @@ def main() -> None:
 
     mlflow.set_tracking_uri(entrenar.TRACKING_URI)
     mlflow.set_experiment(entrenar.NOMBRE_MODELO)
-    with mlflow.start_run(run_name="reentrenamiento"):
+    # En Actions el usuario del sistema es "runner": se deja claro que
+    # este modelo lo entrenó el proceso automático
+    with mlflow.start_run(run_name="reentrenamiento",
+                          tags={"mlflow.user": "reentrenamiento-automatico"}):
         mlflow.log_params({"lotes": ", ".join(lotes),
                            "filas_train": len(X_train)})
         mlflow.log_metrics({**metricas, "rmse_champion": rmse_champion})

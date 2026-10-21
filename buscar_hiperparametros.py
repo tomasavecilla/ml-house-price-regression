@@ -13,6 +13,7 @@ entrenamiento usa esa comparación para comentarla en el PR.
 Uso:
     python buscar_hiperparametros.py
     python buscar_hiperparametros.py --resumen resumen.md
+    python buscar_hiperparametros.py --autor franco
 """
 
 import argparse
@@ -110,12 +111,15 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--resumen", help="dónde guardar el resumen .md")
+    parser.add_argument("--autor", help="quién entrena (por defecto, el "
+                        "usuario del sistema)")
     args = parser.parse_args()
 
     grilla = combinaciones()
     resultados = []
     for i, (modelo, imputador, alpha) in enumerate(grilla, start=1):
-        resultado = entrenar.entrenar_y_registrar(modelo, imputador, alpha)
+        resultado = entrenar.entrenar_y_registrar(modelo, imputador, alpha,
+                                                  autor=args.autor)
         resultados.append({"modelo": modelo, "imputador": imputador,
                            "alpha": alpha, **resultado})
         print(f"[{i}/{len(grilla)}] v{resultado['version']} {modelo} "

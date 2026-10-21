@@ -12,6 +12,7 @@ Uso:
 """
 
 import argparse
+import getpass
 import os
 from pathlib import Path
 from typing import Literal
@@ -237,7 +238,8 @@ def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
                                          "elasticnet"],
                          imputador: Literal["knn", "mediana"],
                          alpha: float,
-                         lotes: list[str] | None = None) -> dict:
+                         lotes: list[str] | None = None,
+                         autor: str | None = None) -> dict:
     """Entrena una configuración y la registra como versión nueva.
 
     Args:
@@ -245,6 +247,7 @@ def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
         imputador: cómo se completan las variables continuas.
         alpha: fuerza de la regularización. No se usa en "lineal".
         lotes: CSV con casas nuevas para sumar a los datos.
+        autor: quién entrena. Por defecto, el usuario del sistema.
 
     Returns:
         La versión registrada y las métricas de validación cruzada y de
@@ -264,9 +267,25 @@ def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
         # mostrar un valor que no se usó
         "alpha": "" if modelo == "lineal" else alpha,
     }
-    with mlflow.start_run() as run:
+    etiquetas_run = {
+        # MLflow local no tiene login: el autor es una etiqueta. Con un
+        # servidor compartido saldría del usuario autenticado
+        "mlflow.user": autor or getpass.getuser(),
+        # Como tags, sirven para filtrar en la UI: tags.modelo = 'ridge'
+        "modelo": modelo,
+        "imputador": imputador,
+    }
+    with mlflow.start_run(tags=etiquetas_run) as run:
         mlflow.log_params({**configuracion, "filas_train": len(X_train),
                            "lotes": ", ".join(lotes)})
+        # Qué datos se usaron: MLflow guarda una huella (digest) de cada
+        # conjunto, y si los datos cambian, cambia la huella
+        for contexto, X, y in [("train", X_train, y_train),
+                               ("test", X_test, y_test)]:
+            conjunto = mlflow.data.from_pandas(
+                X.assign(**{OBJETIVO: y}), source=DATOS,
+                name=f"casas-{contexto}", targets=OBJETIVO)
+            mlflow.log_input(conjunto, context=contexto)
         # cv para comparar configuraciones; test para el modelo elegido
         metricas_cv = validar_cruzado(pipeline, X_train, y_train)
         pipeline.fit(X_train, y_train)
@@ -311,10 +330,12 @@ def main() -> None:
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--lotes", nargs="*", default=[],
                         help="CSV con casas nuevas para sumar")
+    parser.add_argument("--autor", help="quién entrena (por defecto, el "
+                        "usuario del sistema)")
     args = parser.parse_args()
 
     resultado = entrenar_y_registrar(args.modelo, args.imputador,
-                                     args.alpha, args.lotes)
+                                     args.alpha, args.lotes, args.autor)
     print(f"RMSE cv: {resultado['rmse_cv']:.2f}  |  "
           f"RMSE test: {resultado['rmse_test']:.2f}  |  "
           f"versión registrada: {resultado['version']}")
