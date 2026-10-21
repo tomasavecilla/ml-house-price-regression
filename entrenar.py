@@ -281,7 +281,7 @@ def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
         "modelo": modelo,
         "imputador": imputador,
     }
-    with mlflow.start_run(tags=etiquetas_run) as run:
+    with mlflow.start_run(tags=etiquetas_run):
         mlflow.log_params({**configuracion, "filas_train": len(X_train),
                            "lotes": ", ".join(lotes)})
         # Qué datos se usaron: MLflow guarda una huella (digest) de cada
@@ -309,10 +309,6 @@ def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
         )
         version = info.registered_model_version
         cliente = mlflow.MlflowClient()
-        # Cada entrenamiento es una versión nueva del mismo modelo: el
-        # run se llama como esa versión
-        cliente.update_run(run.info.run_id,
-                           name=f"{NOMBRE_MODELO} v{version}")
         # La configuración también queda en la versión, para verla desde
         # el registro sin entrar al run
         etiquetas = {**configuracion,
