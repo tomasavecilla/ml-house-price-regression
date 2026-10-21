@@ -1,0 +1,45 @@
+# Integración continua: cada cambio que se propone (pull request) o que
+# llega a main se prueba solo, en una máquina limpia de GitHub.
+# Si algo falla, el PR queda en rojo y no conviene mergearlo.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    steps:
+      # Baja el código del commit que se está probando
+      - uses: actions/checkout@v5
+
+      # La misma versión de Python que usamos para entrenar; cache: pip
+      # guarda los paquetes entre corridas para que tarde menos
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: >
+          pip install -r requirements.txt -r requirements-dev.txt
+          -r api/requirements.txt
+
+      # Estilo: el código sigue PEP 8 (configuración en setup.cfg)
+      - name: Chequear PEP 8
+        run: pycodestyle .
+
+      # Código, API y modelo: que la inferencia funcione, que la API
+      # valide bien y que el modelo exportado no haya empeorado
+      - name: Correr los tests
+        run: pytest
+
+      # Que las dos imágenes se puedan construir. No se publican:
+      # solo se verifica que el Dockerfile no esté roto
+      - name: Construir la imagen de inferencia por lotes
+        run: docker build -t precio-casas docker/
+
+      - name: Construir la imagen de la API
+        run: docker build -f api/Dockerfile -t precio-casas-api .
