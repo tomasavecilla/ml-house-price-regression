@@ -1,0 +1,66 @@
+# Entrenamiento en cada PR que cambia cómo se entrena: corre la grilla
+# de hiperparámetros en una máquina limpia y comenta en el PR las mejores
+# combinaciones comparadas con el modelo de producción. Así se decide el
+# merge mirando números reproducibles, no lo que alguien corrió en su
+# máquina.
+name: Entrenamiento
+
+on:
+  pull_request:
+    paths:
+      - entrenar.py
+      - buscar_hiperparametros.py
+      - requirements.txt
+      - house-prices-tp.csv
+
+# Comentar en el PR necesita permiso de escritura sobre los PRs
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  entrenar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/requirements*.txt"
+
+      # Solo lo de entrenamiento: acá no se prueban la API ni Docker
+      - name: Instalar dependencias
+        run: uv pip install --system -r requirements.txt
+
+      # MLflow local, dentro de esta máquina: se descarta al terminar,
+      # salvo lo que se guarda como artefacto más abajo
+      - name: Correr la grilla de hiperparámetros
+        run: python buscar_hiperparametros.py --resumen resumen.md
+
+      - name: Comentar el resultado en el PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## Entrenamiento de este PR"
+            echo
+            echo "Las 5 mejores combinaciones de la grilla, ordenadas por"
+            echo "RMSE de validación cruzada, y el modelo de producción."
+            echo
+            cat resumen.md
+          } > comentario.md
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file comentario.md
+
+      - name: Guardar el MLflow de esta corrida
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-entrenamiento
+          path: |
+            mlflow.db
+            mlruns/
