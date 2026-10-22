@@ -1,11 +1,16 @@
 # Monitoreo y reentrenamiento basado en eventos: cuando llega un lote de
 # casas nuevas a datos/lotes/, se revisa si hay drift o si el modelo se
-# equivoca más. Si pasa algo, se abre un issue (la alerta), se reentrena
-# y, si el modelo nuevo es mejor, se abre un PR para que una persona lo
-# apruebe antes de que llegue a producción.
+# equivoca más. Si pasa algo, se abre un issue (la alerta) y se reentrena
+# un challenger, que se registra como versión nueva en el MLflow
+# publicado. El workflow no cambia producción ni el alias champion: el
+# issue trae la comparación y una persona decide si correr Promover.
 #
-# Requiere, en Settings > Actions > General, activar "Allow GitHub
-# Actions to create and approve pull requests".
+# Requiere en el repo (Settings > Secrets and variables > Actions):
+#   secretos: MLFLOW_TRACKING_USERNAME, MLFLOW_TRACKING_PASSWORD
+#             (usuario github-actions de MLflow)
+#   variables: MLFLOW_TRACKING_URI
+# El MLflow de producción solo está prendido de 13 a 00 (hora de
+# Argentina): fuera de ese horario el workflow falla al conectarse.
 name: Reentrenamiento
 
 on:
@@ -15,15 +20,20 @@ on:
   # También se puede correr a mano desde la pestaña Actions
   workflow_dispatch:
 
-# El token del workflow necesita permiso para abrir issues y PRs
+# Solo hace falta abrir y comentar issues: el modelo nuevo no llega al
+# repo por acá
 permissions:
-  contents: write
+  contents: read
   issues: write
-  pull-requests: write
 
 jobs:
   monitorear:
     runs-on: ubuntu-latest
+    env:
+      # El cliente de MLflow toma estas tres variables solo
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
     steps:
       # fetch-depth: 0 baja la historia, para ver qué archivos cambiaron
       - uses: actions/checkout@v5
@@ -42,11 +52,8 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "**/requirements*.txt"
 
-      # Las de la API también, porque los tests la prueban
       - name: Instalar dependencias
-        run: >
-          uv pip install --system -r requirements.txt -r requirements-dev.txt
-          -r api/requirements.txt
+        run: uv pip install --system -r requirements.txt
 
       # En un push, solo los lotes que llegaron en ese push; a mano,
       # todos los que hay
@@ -58,10 +65,12 @@ jobs:
               "${{ github.event.before }}" "${{ github.sha }}" \
               -- 'datos/lotes/*.csv')
           else
-            lotes=$(ls datos/lotes/*.csv)
+            lotes=$(ls datos/lotes/*.csv 2>/dev/null || true)
           fi
           echo "lotes=$(echo $lotes)" >> "$GITHUB_OUTPUT"
 
+      # El reporte de Evidently y las métricas del lote quedan en el
+      # experimento "monitoreo" del MLflow publicado
       - name: Detectar drift y degradación
         id: drift
         if: steps.lotes.outputs.lotes != ''
@@ -69,48 +78,51 @@ jobs:
           python -m monitoreo.detectar_drift ${{ steps.lotes.outputs.lotes }}
           --resumen resumen_drift.md
 
-      # La alerta: un issue que le llega por mail a quien sigue el repo
+      # La alerta: un issue que le llega por mail a quien sigue el repo.
+      # La comparación con producción llega después, como comentario
       - name: Abrir un issue de alerta
+        id: alerta
         if: steps.drift.outputs.alerta == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh issue create
-          --title "Alerta de monitoreo: ${{ steps.lotes.outputs.lotes }}"
-          --body-file resumen_drift.md
+        run: |
+          {
+            cat resumen_drift.md
+            echo "Se está reentrenando un challenger con los lotes nuevos."
+            echo "La comparación con producción llega en un comentario."
+            echo
+            echo "Corrida: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > alerta.md
+          url=$(gh issue create \
+            --title "Alerta de monitoreo: ${{ steps.lotes.outputs.lotes }}" \
+            --body-file alerta.md)
+          echo "issue=$url" >> "$GITHUB_OUTPUT"
 
-      - name: Reentrenar y comparar con producción
+      # Registra el challenger como versión nueva de precio-casas, con
+      # las métricas de los dos modelos y el reporte de Evidently. No
+      # toca el alias champion: promover es una decisión humana
+      - name: Reentrenar y registrar el challenger
         id: reentrenar
         if: steps.drift.outputs.alerta == 'true'
-        run: python -m entrenamiento.reentrenar --resumen resumen_reentrenamiento.md
+        run: >
+          python -m entrenamiento.reentrenar
+          --resumen resumen_reentrenamiento.md
 
-      # Un PR abierto por este workflow no dispara el workflow de CI
-      # (GitHub lo evita para que no haya ciclos), así que los tests del
-      # modelo nuevo se corren acá
-      - name: Probar el modelo nuevo
-        if: steps.reentrenar.outputs.mejoro == 'true'
-        run: pytest
+      - name: Comentar la comparación en el issue
+        if: steps.reentrenar.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh issue comment "${{ steps.alerta.outputs.issue }}"
+          --body-file resumen_reentrenamiento.md
 
-      # Los reportes de Evidently y el MLflow de esta corrida quedan para
-      # descargar desde la página del workflow
-      - name: Guardar reportes y MLflow
-        if: steps.drift.outputs.alerta == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: monitoreo
-          path: |
-            monitoreo/reportes/
-            mlflow.db
-            mlruns/
-
-      # La validación final la hace una persona: el modelo nuevo llega
-      # como PR y solo pasa a producción si alguien lo aprueba
-      - name: Abrir un PR con el modelo nuevo
-        if: steps.reentrenar.outputs.mejoro == 'true'
-        uses: peter-evans/create-pull-request@v7
-        with:
-          add-paths: docker/modelo.joblib
-          branch: reentrenamiento/${{ github.run_number }}
-          commit-message: Reentrenar el modelo con los lotes nuevos
-          title: Modelo reentrenado con los lotes nuevos
-          body-path: resumen_reentrenamiento.md
+      # Si el reentrenamiento falla (por ejemplo, MLflow apagado), el
+      # issue lo dice en vez de quedar esperando una comparación
+      - name: Avisar en el issue que falló el reentrenamiento
+        if: failure() && steps.alerta.outputs.issue != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh issue comment "${{ steps.alerta.outputs.issue }}"
+          --body "El reentrenamiento falló. Revisar la corrida:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

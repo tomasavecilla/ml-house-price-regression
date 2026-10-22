@@ -4,12 +4,15 @@ TestClient llama a la aplicación directamente, así que corren rápido
 y no necesitan un puerto libre.
 """
 
+import json
 from pathlib import Path
 
 import inferencia
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
+from api import main
 from api.main import COLUMNAS, app
 
 cliente = TestClient(app)
@@ -95,6 +98,36 @@ def test_describe_el_modelo() -> None:
                                   "ElasticNet"}
     assert cuerpo["imputador"] in {"KNNImputer", "SimpleImputer"}
     assert len(cuerpo["columnas"]) == 12
+
+
+def test_modelo_muestra_la_version_del_registro(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Con modelo.json, /modelo dice de qué versión salió el binario."""
+    metadatos = tmp_path / "modelo.json"
+    metadatos.write_text(json.dumps({
+        "version": 21, "run_id": "abc123", "rmse_test": 4.5,
+        "registrada": "2026-10-22"}))
+    monkeypatch.setattr(main, "METADATOS", metadatos)
+    cuerpo = cliente.get("/modelo").json()
+    assert cuerpo["version"] == 21
+    assert cuerpo["run_id"] == "abc123"
+    assert cuerpo["rmse_test"] == 4.5
+
+
+def test_modelo_sin_metadatos_no_falla(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sin modelo.json, o con uno roto, /modelo responde igual y la
+    versión queda en null."""
+    monkeypatch.setattr(main, "METADATOS", tmp_path / "no-existe.json")
+    respuesta = cliente.get("/modelo")
+    assert respuesta.status_code == 200
+    assert respuesta.json()["version"] is None
+    roto = tmp_path / "roto.json"
+    roto.write_text("{esto no es json")
+    monkeypatch.setattr(main, "METADATOS", roto)
+    respuesta = cliente.get("/modelo")
+    assert respuesta.status_code == 200
+    assert respuesta.json()["version"] is None
 
 
 def test_api_y_lotes_dan_el_mismo_precio(tmp_path: Path) -> None:

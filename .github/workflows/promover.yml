@@ -1,0 +1,142 @@
+# Promoción de una versión del registro de MLflow a producción. Lo corre
+# una persona, después de mirar la comparación champion vs challenger que
+# deja el reentrenamiento en el issue.
+#
+# El orden evita que MLflow y el repo queden desacoplados: primero se
+# prueba el modelo (que no se pueda cargar o que empeore frena todo sin
+# haber tocado nada), después se commitea el binario en main y recién al
+# final se mueve el alias champion. Si algo falla antes del alias, el
+# registro sigue apuntando a la versión de siempre.
+#
+# Requiere los mismos secretos y variables de MLflow que Reentrenamiento.
+# Fuera de main es una corrida de prueba: exporta y prueba el modelo,
+# pero no commitea, no cambia el alias ni despliega.
+name: Promover
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Versión de precio-casas a promover (número del registro)
+        required: true
+        type: string
+
+# El mismo grupo que el despliegue: no se promueve mientras se está
+# desplegando, ni al revés
+concurrency:
+  group: produccion
+  cancel-in-progress: false
+
+# contents: write para commitear el binario; actions: write para disparar
+# el despliegue
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  promover:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      # El cliente de MLflow toma estas tres variables solo
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      # Solo en main se cambia algo de verdad
+      EN_MAIN: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      # Antes de gastar una máquina: tiene que ser un número entero
+      - name: Validar la versión
+        run: |
+          if ! [[ "$VERSION" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::La versión tiene que ser un número entero (por ejemplo 21), no '$VERSION'"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/requirements*.txt"
+
+      # Las de la API también, porque los tests la prueban
+      - name: Instalar dependencias
+        run: >
+          uv pip install --system -r requirements.txt -r requirements-dev.txt
+          -r api/requirements.txt
+
+      # Descarga models:/precio-casas/<versión> y la guarda en el lugar
+      # del binario de producción, con modelo.json al lado (de qué
+      # versión salió, para que la app lo muestre). Si la versión no
+      # existe, falla acá
+      - name: Exportar la versión
+        run: python -m entrenamiento.exportar_modelo --version "$VERSION"
+
+      # Si el binario y sus metadatos son idénticos a los del repo (por
+      # ejemplo, se promueve la versión que ya es champion), no hay nada
+      # que commitear. status también ve los archivos que todavía no
+      # están en el repo
+      - name: Ver si el modelo cambió
+        id: cambio
+        run: |
+          if [ -z "$(git status --porcelain -- docker/modelo.joblib docker/modelo.json)" ]; then
+            echo "cambio=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cambio=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Los mismos tests del CI, ahora con el modelo nuevo: si el RMSE
+      # empeoró o el pipeline no carga, se frena antes de commitear
+      - name: Probar el modelo
+        run: pytest
+
+      - name: Commitear el modelo en main
+        if: steps.cambio.outputs.cambio == 'true' && env.EN_MAIN == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docker/modelo.joblib docker/modelo.json
+          git commit -m "modelo: promover la versión $VERSION a producción"
+          git push origin HEAD:main
+
+      # Recién ahora el registro apunta a la versión. Sin cambio también
+      # se asigna: si una corrida anterior falló justo antes del alias,
+      # volver a correr Promover lo deja consistente
+      - name: Asignar el alias champion
+        if: env.EN_MAIN == 'true'
+        run: python -m entrenamiento.promover --version "$VERSION" --asignar
+
+      # Lo que hace un push de GITHUB_TOKEN no dispara otros workflows
+      # (GitHub lo evita para que no haya ciclos), así que el CI no corre
+      # y el despliegue no arranca solo. La excepción es workflow_dispatch:
+      # se lo pedimos directo. Los tests ya pasaron en este job, y el
+      # despliegue construye las imágenes del commit recién pusheado
+      - name: Disparar el despliegue
+        if: steps.cambio.outputs.cambio == 'true' && env.EN_MAIN == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run desplegar.yml --ref main
+
+      - name: Resumen
+        env:
+          CAMBIO: ${{ steps.cambio.outputs.cambio }}
+        run: |
+          if [ "$EN_MAIN" != "true" ]; then
+            estado="Corrida de prueba fuera de main: el modelo se exportó y pasó los tests, pero no se commiteó, el alias no cambió y no se desplegó."
+          elif [ "$CAMBIO" = "true" ]; then
+            estado="Modelo commiteado en main, alias @champion asignado y despliegue disparado (workflow Despliegue)."
+          else
+            estado="El modelo y sus metadatos son idénticos a los del repo: no se commiteó nada ni se desplegó. El alias @champion apunta a la versión $VERSION."
+          fi
+          python -m entrenamiento.promover --version "$VERSION" \
+            --resumen resumen.md --estado "$estado"
+          {
+            cat resumen.md
+            echo
+            echo "- App: https://tasador.${{ vars.DOMINIO }}"
+          } >> "$GITHUB_STEP_SUMMARY"
