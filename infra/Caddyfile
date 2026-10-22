@@ -8,3 +8,9 @@ tasador.{$DOMINIO} {
 api.{$DOMINIO} {
 	reverse_proxy api:8000
 }
+
+# El servidor de MLflow. Caddy conserva el encabezado Host original, que es
+# justo lo que MLflow valida (--allowed-hosts en compose.yml)
+mlflow.{$DOMINIO} {
+	reverse_proxy mlflow:5000
+}

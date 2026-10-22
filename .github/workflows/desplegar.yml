@@ -76,6 +76,17 @@ jobs:
           cache-from: type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
 
+      # El servidor de MLflow: la imagen oficial más lo que le falta
+      # para guardar en S3 y pedir usuario y contraseña
+      - name: Construir y subir la imagen de MLflow
+        uses: docker/build-push-action@v7
+        with:
+          context: infra/mlflow
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/precio-casas-mlflow:${{ env.COMMIT }}
+          cache-from: type=gha,scope=mlflow
+          cache-to: type=gha,mode=max,scope=mlflow
+
       # La EC2 baja las imágenes de este commit y reinicia los contenedores
       - name: Publicar en la EC2
         env:
@@ -113,4 +124,5 @@ jobs:
             echo "### Desplegado ${COMMIT::7}"
             echo "- App: https://tasador.${{ vars.DOMINIO }}"
             echo "- API: https://api.${{ vars.DOMINIO }}/docs"
+            echo "- MLflow: https://mlflow.${{ vars.DOMINIO }}"
           } >> "$GITHUB_STEP_SUMMARY"

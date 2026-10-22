@@ -1,5 +1,5 @@
 # Infraestructura de producción del tasador, como código (CloudFormation).
-# Crea todo lo necesario para publicar la API y la app en una EC2:
+# Crea todo lo necesario para publicar la API, la app y MLflow en una EC2:
 #
 #   aws cloudformation deploy --stack-name tasador \
 #     --template-file infra/plantilla.yml --capabilities CAPABILITY_NAMED_IAM
@@ -8,12 +8,12 @@
 #
 #   aws cloudformation delete-stack --stack-name tasador
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Tasador de casas - API y app en EC2 con despliegue desde GitHub
+Description: Tasador de casas - API, app y servidor MLflow en EC2 con despliegue desde GitHub
 
 Parameters:
   TipoInstancia:
     Type: String
-    Default: t3.micro
+    Default: t3.small
   # La AMI más nueva de Amazon Linux 2023, resuelta por AWS al desplegar
   Ami:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -57,6 +57,48 @@ Resources:
                                     "countNumber": 10},
                       "action": {"type": "expire"}}]}
 
+  RegistroMlflow:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: precio-casas-mlflow
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1,
+                      "description": "Guardar solo las 10 últimas",
+                      "selection": {"tagStatus": "any",
+                                    "countType": "imageCountMoreThan",
+                                    "countNumber": 10},
+                      "action": {"type": "expire"}}]}
+
+  # --- Bucket de MLflow: artefactos (modelos, gráficos) y respaldos de
+  # las bases sqlite. El nombre incluye la cuenta porque tiene que ser
+  # único en todo AWS. Para borrar el stack hay que vaciarlo antes
+  # (versiones incluidas): CloudFormation no borra buckets con objetos ---
+  BucketMlflow:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "tasador-mlflow-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      # Nada público: el único camino a los datos es el servidor MLflow
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Con versionado, un borrado o un respaldo pisado se puede recuperar;
+      # las versiones viejas se descartan a los 30 días para no acumular
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: descartar-versiones-viejas
+            Status: Enabled
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+
   # --- Red: solo HTTP y HTTPS. Sin SSH: se administra con Session Manager ---
   GrupoSeguridad:
     Type: AWS::EC2::SecurityGroup
@@ -67,7 +109,8 @@ Resources:
         - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
         - {IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
 
-  # --- Permisos de la instancia: Session Manager y leer imágenes de ECR ---
+  # --- Permisos de la instancia: Session Manager, leer imágenes de ECR,
+  # usar el bucket de MLflow y leer la contraseña del admin de MLflow ---
   RolInstancia:
     Type: AWS::IAM::Role
     Properties:
@@ -81,6 +124,23 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: mlflow
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Solo este bucket (artefactos y respaldos)
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt BucketMlflow.Arn
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub "${BucketMlflow.Arn}/*"
+              # Solo este parámetro. Se crea a mano, como SecureString,
+              # porque CloudFormation no puede crearlos
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/tasador/mlflow/admin-password"
 
   PerfilInstancia:
     Type: AWS::IAM::InstanceProfile
@@ -96,8 +156,12 @@ Resources:
       IamInstanceProfile: !Ref PerfilInstancia
       SecurityGroupIds: [!GetAtt GrupoSeguridad.GroupId]
       # Exige IMDSv2 para los metadatos de la instancia
+      # y permite 2 saltos de red en vez de 1: así los contenedores (que
+      # están un salto detrás de la instancia) pueden pedir las credenciales
+      # del rol, que MLflow necesita para escribir en S3
       MetadataOptions:
         HttpTokens: required
+        HttpPutResponseHopLimit: 2
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs: {VolumeSize: 20, VolumeType: gp3, Encrypted: true}
@@ -114,7 +178,7 @@ Resources:
             https://github.com/docker/compose/releases/download/v5.6.1/docker-compose-linux-x86_64
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
           systemctl enable --now docker
-          # 1 GB de swap: la t3.micro tiene solo 1 GB de memoria
+          # 1 GB de swap, de colchón: la t3.small tiene 2 GB de memoria
           dd if=/dev/zero of=/swapfile bs=1M count=1024
           chmod 600 /swapfile
           mkswap /swapfile
@@ -163,19 +227,43 @@ Resources:
                 - cd /opt/tasador
                 - !Sub "export REGISTRO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
                 - export ETIQUETA={{ Commit }}
+                - !Sub "export BUCKET=${BucketMlflow}"
+                # La contraseña del admin de MLflow no está en el repo: se
+                # lee de SSM Parameter Store, descifrada, solo en la instancia
+                # (en dos pasos: "export X=$(...)" taparía un error del comando)
+                - !Sub "MLFLOW_ADMIN_PASSWORD=$(aws ssm get-parameter --region ${AWS::Region} --name /tasador/mlflow/admin-password --with-decryption --query Parameter.Value --output text)"
+                - export MLFLOW_ADMIN_PASSWORD
+                # Clave de la protección CSRF de MLflow: se genera la primera vez
+                # y queda en la instancia, para que no cambie en cada despliegue
+                - '[ -s clave-flask ] || (umask 077; openssl rand -hex 32 > clave-flask)'
+                - export MLFLOW_CLAVE_FLASK=$(cat clave-flask)
                 - !Sub
                   - "export DOMINIO=${Guiones}.sslip.io"
                   - Guiones: !Join ["-", !Split [".", !GetAtt Ip.PublicIp]]
                 - !Sub "URL=https://raw.githubusercontent.com/${Repositorio}/{{ Commit }}/infra"
                 - curl -fsSL -o compose.yml "$URL/compose.yml"
                 - curl -fsSL -o Caddyfile "$URL/Caddyfile"
+                - mkdir -p mlflow
+                - curl -fsSL -o mlflow/basic_auth.ini "$URL/mlflow/basic_auth.ini"
+                # Las bases de MLflow viven en ./datos (las escribe el usuario
+                # 1000 del contenedor). Antes de tocar nada, se las respalda
+                - mkdir -p datos
+                - chown 1000:1000 datos
+                - curl -fsSL -o respaldo.sh "$URL/respaldo/respaldo.sh"
+                - echo "BUCKET=$BUCKET" > respaldo.env
+                - bash respaldo.sh || echo "AVISO el respaldo falló, se sigue igual"
                 - !Sub "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin $REGISTRO"
                 - docker compose pull
                 - docker compose up -d --remove-orphans --wait
                 - docker image prune -af
+                # Respaldo diario de las bases de MLflow (un timer de systemd)
+                - curl -fsSL -o /etc/systemd/system/tasador-respaldo.service "$URL/respaldo/tasador-respaldo.service"
+                - curl -fsSL -o /etc/systemd/system/tasador-respaldo.timer "$URL/respaldo/tasador-respaldo.timer"
+                - systemctl daemon-reload
+                - systemctl enable --now tasador-respaldo.timer
                 - docker compose ps
 
-  # --- El usuario de GitHub Actions: solo sube imágenes a estos dos
+  # --- El usuario de GitHub Actions: solo sube imágenes a estos tres
   # registros y dispara el despliegue de esta instancia ---
   UsuarioGitHub:
     Type: AWS::IAM::User
@@ -201,6 +289,7 @@ Resources:
                 Resource:
                   - !GetAtt RegistroApi.Arn
                   - !GetAtt RegistroApp.Arn
+                  - !GetAtt RegistroMlflow.Arn
               - Effect: Allow
                 Action: ssm:SendCommand
                 Resource:
@@ -258,6 +347,12 @@ Resources:
         Input: !Sub '{"InstanceIds": ["${Instancia}"]}'
 
 Outputs:
+  UrlMlflow:
+    Value: !Sub
+      - "https://mlflow.${Guiones}.sslip.io"
+      - Guiones: !Join ["-", !Split [".", !GetAtt Ip.PublicIp]]
+  BucketMlflow:
+    Value: !Ref BucketMlflow
   InstanciaId:
     Value: !Ref Instancia
   Registro:

@@ -1,0 +1,7 @@
+[Unit]
+Description=Respaldo de las bases de MLflow en S3
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/tasador/respaldo.env
+ExecStart=/bin/bash /opt/tasador/respaldo.sh
