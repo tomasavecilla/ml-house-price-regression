@@ -55,6 +55,22 @@ warnings.filterwarnings(
     "ignore", message="The specified dataset source can be interpreted")
 
 
+def enlace_mlflow(ruta: str) -> str | None:
+    """Arma el link a una página de la UI del MLflow publicado.
+
+    Args:
+        ruta: lo que va después de "#/", por ejemplo
+            "models/precio-casas/versions/21".
+
+    Returns:
+        El link, o None si MLflow es local (un archivo sqlite no tiene
+        UI a la que apuntar).
+    """
+    if not TRACKING_URI.startswith("http"):
+        return None
+    return f"{TRACKING_URI.rstrip('/')}/#/{ruta}"
+
+
 def leer_dataset() -> pd.DataFrame:
     """Lee el dataset original y descarta las filas que no son válidas.
 

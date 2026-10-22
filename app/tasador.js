@@ -237,7 +237,9 @@ async function mostrarEstadoApi() {
     estado.className = "estado-api ok";
     $("#modelo").textContent = `Estimación generada por el modelo ` +
       `${info.regresor}${alpha} con imputación ${info.imputador}, ` +
-      `publicado el ${formatearFecha(info.actualizado)}.`;
+      `publicado el ${formatearFecha(info.actualizado)}` +
+      // Sin metadatos (un binario exportado a mano) no hay versión
+      (info.version ? `, versión ${info.version} del registro.` : ".");
   } catch {
     $("#estado-texto").textContent = "API sin conexión";
     estado.className = "estado-api error";

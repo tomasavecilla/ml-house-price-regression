@@ -16,6 +16,7 @@ Uso:
     La documentación interactiva queda en localhost:8000/docs
 """
 
+import json
 import os
 import sys
 from datetime import datetime
@@ -32,6 +33,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "docker"))
 import inferencia  # noqa: E402
 
 app = FastAPI(title="Precio de casas")
+
+# Junto al binario, de qué versión del registro salió (lo escribe
+# entrenamiento/exportar_modelo.py). Puede no existir
+METADATOS = Path(inferencia.MODELO).with_suffix(".json")
 
 # Se carga una sola vez, al arrancar: cargar el pipeline en cada pedido
 # haría lenta la API sin ningún beneficio
@@ -126,6 +131,31 @@ class InfoModelo(BaseModel):
     actualizado: str = Field(
         description="Fecha en que se exportó el binario (fecha de "
         "modificación del archivo)")
+    version: int | None = Field(
+        default=None, description="Versión del registro de MLflow de la "
+        "que salió el binario; null si no hay metadatos")
+    run_id: str | None = Field(
+        default=None, description="Run de MLflow que entrenó esa "
+        "versión; null si no hay metadatos")
+    rmse_test: float | None = Field(
+        default=None, description="RMSE de esa versión en test, en "
+        "miles de USD; null si no se conoce")
+
+
+def _leer_metadatos() -> dict:
+    """Lee los metadatos de la versión que está en producción.
+
+    Se lee en cada pedido (es un archivo chico) para no depender de
+    que exista al arrancar.
+
+    Returns:
+        El contenido de modelo.json, o un diccionario vacío si el
+        archivo no existe o no se puede leer.
+    """
+    try:
+        return json.loads(METADATOS.read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 def _a_tabla(casas: list[Casa]) -> pd.DataFrame:
@@ -217,9 +247,11 @@ def info_modelo() -> InfoModelo:
     """Describe el modelo que está en producción.
 
     Returns:
-        Regresor, alpha, imputador, columnas de entrada y fecha de
-        exportación del binario.
+        Regresor, alpha, imputador, columnas de entrada, fecha de
+        exportación del binario y, si hay metadatos, la versión del
+        registro de la que salió.
     """
+    metadatos = _leer_metadatos()
     imputador = (preprocesamiento.named_transformers_["continuas"]
                  .named_steps["imputar"])
     actualizado = datetime.fromtimestamp(
@@ -231,4 +263,7 @@ def info_modelo() -> InfoModelo:
         imputador=type(imputador).__name__,
         columnas=COLUMNAS,
         actualizado=actualizado.strftime("%Y-%m-%d"),
+        version=metadatos.get("version"),
+        run_id=metadatos.get("run_id"),
+        rmse_test=metadatos.get("rmse_test"),
     )

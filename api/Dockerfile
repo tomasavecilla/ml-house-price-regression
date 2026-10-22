@@ -10,9 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Misma estructura que el repo (api/ y docker/ lado a lado): main.py
 # importa docker/inferencia.py, el mismo código y el mismo binario que
-# usa la inferencia por lotes
+# usa la inferencia por lotes. El * hace que modelo.json (de qué versión
+# del registro salió el binario) sea opcional: sin él, la API anda igual
 COPY api/main.py api/
-COPY docker/inferencia.py docker/modelo.joblib docker/
+COPY docker/inferencia.py docker/modelo.joblib docker/modelo.json* docker/
 
 # 0.0.0.0: escuchar en todas las interfaces, si no el puerto no se ve
 # desde afuera del contenedor

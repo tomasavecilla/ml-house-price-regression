@@ -36,7 +36,8 @@ binario.
 | `notebooks/` | `TP_regresion_AA1.ipynb`, el TP original (EDA, modelos y comparación), y sus requirements |
 | `entrenamiento/entrenar.py` | Entrena el pipeline y lo registra en MLflow |
 | `entrenamiento/buscar_hiperparametros.py` | Entrena la grilla de modelos e hiperparámetros |
-| `entrenamiento/exportar_modelo.py` | Exporta la versión `@champion` a `docker/modelo.joblib` |
+| `entrenamiento/exportar_modelo.py` | Exporta la versión `@champion` (o la de `--version`) a `docker/modelo.joblib`, con `docker/modelo.json` al lado: de qué versión del registro salió |
+| `entrenamiento/promover.py` | Asigna el alias `@champion` a una versión y resume la promoción |
 | `entrenamiento/inspeccionar_modelo.py` | Muestra qué aprendió el pipeline y viaja en el binario |
 | `docker/` | Inferencia por lotes en un contenedor (ver su README) |
 | `api/` | El mismo modelo servido como API con FastAPI |
@@ -44,9 +45,9 @@ binario.
 | `docker-compose.yml` | Levanta la API y la app juntas |
 | `infra/` | Producción en AWS: la plantilla de CloudFormation y el compose con HTTPS |
 | `monitoreo/` | Genera lotes de casas nuevas y detecta drift con Evidently |
-| `entrenamiento/reentrenar.py` | Reentrena con los lotes y compara contra producción |
+| `entrenamiento/reentrenar.py` | Reentrena con los lotes, compara contra producción y registra el challenger en MLflow |
 | `tests/` | Tests de la inferencia, la API y el modelo exportado |
-| `.github/workflows/` | CI (`ci.yml`), despliegue (`desplegar.yml`), entrenamiento en los PR (`entrenamiento.yml`) y reentrenamiento por eventos (`reentrenar.yml`) |
+| `.github/workflows/` | CI (`ci.yml`), despliegue (`desplegar.yml`), entrenamiento en los PR (`entrenamiento.yml`), reentrenamiento por eventos (`reentrenar.yml`) y promoción de una versión (`promover.yml`) |
 | `datos/` | El dataset (`house-prices-tp.csv`) y, en `lotes/`, donde llegan los lotes de casas nuevas |
 
 ## Cómo usarlo
@@ -86,7 +87,8 @@ Servir el modelo:
 uvicorn api.main:app --reload        # documentación en localhost:8000/docs
 ```
 
-Monitorear un lote nuevo y reentrenar:
+Monitorear un lote nuevo y reentrenar (el challenger queda registrado
+como versión nueva, pero `@champion` no cambia):
 
 ```bash
 python -m monitoreo.generar_lote --tipo zona-nueva      # o suba-mercado
@@ -100,6 +102,46 @@ Tests y estilo (lo mismo que corre el CI):
 pycodestyle .
 pytest
 ```
+
+## Reentrenar y promover
+
+Los lotes de casas nuevas se suben a `datos/lotes/`. Cada push a `main`
+con un lote nuevo corre `reentrenar.yml` contra el MLflow publicado
+(<https://mlflow.3-140-54-207.sslip.io>, con usuario y contraseña en los
+secretos del repo):
+
+1. Evidently revisa el lote: data drift y, si trae precios, degradación.
+2. Si hay alguna de las dos, abre un issue de alerta.
+3. Entrena un challenger con el dataset más los lotes y lo registra como
+   versión nueva de `precio-casas`, con las métricas del challenger y
+   del champion sobre el mismo test, y el reporte de Evidently como
+   artefacto del run.
+4. Comenta en el issue la comparación, el link a la versión y una
+   recomendación (promover si mejora al menos 1%).
+
+El workflow no toca producción: una persona mira la comparación y, si
+conviene, corre **Promover** (pestaña Actions, con el número de versión).
+Ese workflow exporta la versión, corre los tests, commitea el binario en
+`main`, recién entonces asigna el alias `@champion` y dispara el
+despliegue. En ese orden, MLflow y el repo no quedan desacoplados: si
+algo falla antes del alias, el registro sigue apuntando a la versión de
+siempre. Si la versión ya es la de producción, no commitea nada.
+(Un push hecho con el token del workflow no dispara el CI, así que
+Promover le pide el despliegue directamente a `desplegar.yml`.)
+
+```mermaid
+flowchart LR
+    lote[lote en datos/lotes] --> ev[Evidently: drift?]
+    ev -- "sí" --> iss[issue de alerta]
+    ev -- "sí" --> chal[challenger: versión nueva en MLflow]
+    chal --> cmp[comparación en el issue]
+    cmp -- "decide una persona" --> prom[Promover: exporta, prueba, commitea]
+    prom --> ali[alias @champion]
+    prom --> dep[despliegue]
+```
+
+El pie de la app muestra qué versión del registro está respondiendo:
+`modelo.json` viaja en la imagen de la API y `/modelo` lo expone.
 
 ## La aplicación del tasador
 
