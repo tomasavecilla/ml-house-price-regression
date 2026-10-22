@@ -42,10 +42,11 @@ binario.
 | `api/` | El mismo modelo servido como API con FastAPI |
 | `app/` | La interfaz del tasador (Streamlit), que solo habla con la API |
 | `docker-compose.yml` | Levanta la API y la app juntas |
+| `infra/` | Producción en AWS: la plantilla de CloudFormation y el compose con HTTPS |
 | `monitoreo/` | Genera lotes de casas nuevas y detecta drift con Evidently |
 | `reentrenar.py` | Reentrena con los lotes y compara contra producción |
 | `tests/` | Tests de la inferencia, la API y el modelo exportado |
-| `.github/workflows/` | CI (`ci.yml`), entrenamiento en los PR (`entrenamiento.yml`) y reentrenamiento por eventos (`reentrenar.yml`) |
+| `.github/workflows/` | CI (`ci.yml`), despliegue (`desplegar.yml`), entrenamiento en los PR (`entrenamiento.yml`) y reentrenamiento por eventos (`reentrenar.yml`) |
 | `datos/lotes/` | Donde llegan los lotes de casas nuevas |
 
 ## Cómo usarlo
@@ -112,6 +113,28 @@ docker compose up --build
 
 - App: <http://localhost:8501>
 - API: <http://localhost:8000/docs>
+
+## En producción
+
+La API y la app están publicadas en una EC2 de AWS:
+
+- App: <https://tasador.3-140-54-207.sslip.io>
+- API: <https://api.3-140-54-207.sslip.io/docs>
+
+Cada merge a `main` que pasa el CI se despliega solo
+(`.github/workflows/desplegar.yml`):
+
+```mermaid
+flowchart LR
+    m[merge a main] --> ci[CI: estilo, tests e imágenes]
+    ci -- "verde" --> img[imágenes etiquetadas con el commit, a ECR]
+    img --> ec2[la EC2 las descarga y reinicia]
+    ec2 --> ok[prueba de la API publicada]
+```
+
+Toda la infraestructura está en `infra/plantilla.yml` (CloudFormation):
+la instancia, la IP fija, los registros de imágenes, los permisos y el
+comando de despliegue. Caddy (`infra/Caddyfile`) sirve todo por HTTPS.
 
 ## Antes de entregar la carpeta `docker/`
 

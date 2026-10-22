@@ -1,0 +1,47 @@
+# Producción: los mismos dos servicios que docker-compose.yml, pero con
+# las imágenes ya construidas por GitHub Actions (no se construye nada en
+# el servidor) y Caddy adelante para servir todo por HTTPS.
+# El despliegue (infra/plantilla.yml) define REGISTRO, ETIQUETA y DOMINIO.
+services:
+  api:
+    image: ${REGISTRO}/precio-casas-api:${ETIQUETA}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/salud')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  app:
+    image: ${REGISTRO}/precio-casas-app:${ETIQUETA}
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Recibe todo el tráfico, saca los certificados HTTPS solo y reparte:
+  # tasador.<dominio> va a la app y api.<dominio> a la API
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Los certificados se guardan acá, para no pedirlos en cada despliegue
+      - caddy_datos:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - app
+
+volumes:
+  caddy_datos:
+  caddy_config:

@@ -1,0 +1,10 @@
+# Caddy pide los certificados HTTPS a Let's Encrypt la primera vez que
+# alguien entra. DOMINIO es <ip>.sslip.io: sslip.io resuelve cualquier
+# nombre que contenga una IP a esa misma IP.
+tasador.{$DOMINIO} {
+	reverse_proxy app:8501
+}
+
+api.{$DOMINIO} {
+	reverse_proxy api:8000
+}
