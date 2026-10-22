@@ -82,7 +82,7 @@ jobs:
       - name: Reentrenar y comparar con producción
         id: reentrenar
         if: steps.drift.outputs.alerta == 'true'
-        run: python reentrenar.py --resumen resumen_reentrenamiento.md
+        run: python -m entrenamiento.reentrenar --resumen resumen_reentrenamiento.md
 
       # Un PR abierto por este workflow no dispara el workflow de CI
       # (GitHub lo evita para que no haya ciclos), así que los tests del

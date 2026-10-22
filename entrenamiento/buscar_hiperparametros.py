@@ -11,9 +11,9 @@ También compara la mejor contra el modelo de producción
 entrenamiento usa esa comparación para comentarla en el PR.
 
 Uso:
-    python buscar_hiperparametros.py
-    python buscar_hiperparametros.py --resumen resumen.md
-    python buscar_hiperparametros.py --autor franco
+    python -m entrenamiento.buscar_hiperparametros
+    python -m entrenamiento.buscar_hiperparametros --resumen resumen.md
+    python -m entrenamiento.buscar_hiperparametros --autor franco
 """
 
 import argparse
@@ -23,9 +23,9 @@ from pathlib import Path
 import joblib
 from sklearn.base import clone
 
-import entrenar
+from entrenamiento import entrenar
 
-MODELO_PRODUCCION = "docker/modelo.joblib"
+MODELO_PRODUCCION = entrenar.MODELO
 
 # Los modelos del TP. La regresión lineal no tiene alpha, así que se
 # prueba una sola vez por imputador

@@ -8,8 +8,8 @@ se equivoca al menos un 1% menos reemplaza al champion; igual hace
 falta que una persona apruebe el cambio (el PR que abre el workflow).
 
 Uso:
-    python reentrenar.py
-    python reentrenar.py --resumen resumen.md
+    python -m entrenamiento.reentrenar
+    python -m entrenamiento.reentrenar --resumen resumen.md
 """
 
 import argparse
@@ -21,9 +21,9 @@ import mlflow
 from mlflow.models import infer_signature
 from sklearn.base import clone
 
-import entrenar
+from entrenamiento import entrenar
 
-MODELO = "docker/modelo.joblib"
+MODELO = entrenar.MODELO
 # El challenger tiene que equivocarse al menos un 1% menos: una mejora
 # más chica puede ser ruido, y cambiar de modelo tiene un costo
 MEJORA_MINIMA = 0.01

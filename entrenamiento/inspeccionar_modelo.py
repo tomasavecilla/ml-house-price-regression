@@ -4,14 +4,17 @@ El archivo no guarda código: guarda los pasos del pipeline y lo que
 cada uno aprendió en train.
 
 Uso:
-    python inspeccionar_modelo.py
+    python -m entrenamiento.inspeccionar_modelo
 """
+
+from pathlib import Path
 
 import joblib
 import numpy as np
 from sklearn.pipeline import Pipeline
 
-MODELO = "docker/modelo.joblib"
+RAIZ = Path(__file__).resolve().parent.parent
+MODELO = RAIZ / "docker" / "modelo.joblib"
 
 
 def mostrar_aprendido(pipeline: Pipeline) -> None:

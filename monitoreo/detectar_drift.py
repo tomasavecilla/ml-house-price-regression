@@ -27,10 +27,10 @@ from evidently.presets import DataDriftPreset
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
-import entrenar
+from entrenamiento import entrenar
 
-MODELO = "docker/modelo.joblib"
-REPORTES = Path("monitoreo/reportes")
+MODELO = entrenar.MODELO
+REPORTES = entrenar.RAIZ / "monitoreo" / "reportes"
 # Una variable sola puede salir distinta por azar; si cambian 3 de las
 # 12 (25%) ya no es casualidad
 PROPORCION_DRIFT = 0.25

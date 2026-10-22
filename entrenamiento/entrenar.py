@@ -4,10 +4,11 @@ Cada ejecución queda como un run y como una versión nueva del modelo
 en el registro.
 
 Uso:
-    python entrenar.py                         # Ridge, imputador KNN
-    python entrenar.py --modelo lasso --alpha 0.1
-    python entrenar.py --imputador mediana
-    python entrenar.py --lotes datos/lotes/*.csv   # suma casas nuevas
+    python -m entrenamiento.entrenar              # Ridge, imputador KNN
+    python -m entrenamiento.entrenar --modelo lasso --alpha 0.1
+    python -m entrenamiento.entrenar --imputador mediana
+    python -m entrenamiento.entrenar --lotes datos/lotes/*.csv
+                                                  # suma casas nuevas
     mlflow ui --backend-store-uri sqlite:///mlflow.db
 """
 
@@ -32,8 +33,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 # El dataset original y la carpeta donde llegan las casas nuevas
-DATOS = "house-prices-tp.csv"
-LOTES = "datos/lotes"
+# Las rutas se arman desde la raíz del repo, así los scripts andan
+# desde cualquier directorio
+RAIZ = Path(__file__).resolve().parent.parent
+DATOS = RAIZ / "datos" / "house-prices-tp.csv"
+LOTES = RAIZ / "datos" / "lotes"
+MODELO = RAIZ / "docker" / "modelo.joblib"
 OBJETIVO = "MEDV"
 # B se descarta: se calcula a partir de la proporción de población
 # negra de cada ciudad
@@ -41,7 +46,8 @@ DESCARTADAS = ["B"]
 # Variables que solo toman ciertos valores: se imputan con la moda
 DISCRETAS = ["CHAS", "RAD"]
 NOMBRE_MODELO = "precio-casas"
-TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+TRACKING_URI = os.environ.get(
+    "MLFLOW_TRACKING_URI", f"sqlite:///{(RAIZ / 'mlflow.db').as_posix()}")
 # MLflow 3.17 registra dos veces el mismo tipo de origen de datos y
 # avisa en cada log_input que el origen "se puede interpretar de dos
 # formas". Las dos son la misma, así que el aviso no aporta nada
@@ -289,7 +295,7 @@ def entrenar_y_registrar(modelo: Literal["lineal", "lasso", "ridge",
         for contexto, X, y in [("train", X_train, y_train),
                                ("test", X_test, y_test)]:
             conjunto = mlflow.data.from_pandas(
-                X.assign(**{OBJETIVO: y}), source=DATOS,
+                X.assign(**{OBJETIVO: y}), source=str(DATOS),
                 name=f"casas-{contexto}", targets=OBJETIVO)
             mlflow.log_input(conjunto, context=contexto)
         # cv para comparar configuraciones; test para el modelo elegido
