@@ -7,5 +7,6 @@ mlruns/
 .pytest_cache/
 # Salida de la inferencia de ejemplo
 docker/precios.csv
+precios.csv
 # Reportes HTML de Evidently: se generan al monitorear
 monitoreo/reportes/

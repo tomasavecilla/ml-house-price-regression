@@ -4,17 +4,17 @@ El registro de MLflow decide qué versión va a producción; este binario
 es el que viaja en el contenedor.
 
 Uso:
-    python exportar_modelo.py
+    python -m entrenamiento.exportar_modelo
 """
-
-import os
 
 import joblib
 import mlflow
 
-NOMBRE_MODELO = "precio-casas"
-TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
-DESTINO = "docker/modelo.joblib"
+from entrenamiento import entrenar
+
+NOMBRE_MODELO = entrenar.NOMBRE_MODELO
+TRACKING_URI = entrenar.TRACKING_URI
+DESTINO = entrenar.MODELO
 
 
 def main() -> None:

@@ -6,7 +6,7 @@ Contiene solo lo que la imagen necesita:
 
 - `inferencia.py`: el script. Carga el pipeline y predice.
 - `modelo.joblib`: el pipeline entrenado (preprocesamiento + modelo),
-  exportado desde el registro de MLflow con `exportar_modelo.py`.
+  exportado desde el registro de MLflow con `python -m entrenamiento.exportar_modelo`.
 - `requirements.txt`: las librerías de inferencia, nada más.
 - `Dockerfile`: cómo se arma la imagen.
 - `casas_ejemplo.csv`: cinco casas para probar.

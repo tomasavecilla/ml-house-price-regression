@@ -27,7 +27,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-import entrenar
+from entrenamiento import entrenar
 
 SUBA_MERCADO = 1.3
 

@@ -1,7 +1,9 @@
 """Sirve el modelo de precio de casas como una API HTTP.
 
-Es el mismo pipeline que usa docker/inferencia.py, pero en vez de
-procesar un CSV entero responde una casa por pedido.
+Usa el mismo código que el script por lotes: la predicción vive en
+docker/inferencia.py y acá solo se la llama, así los dos dan siempre
+el mismo precio. En vez de procesar un CSV entero, responde una casa
+por pedido.
 
 Uso:
     uvicorn api.main:app --reload      # desde la raíz del repo
@@ -15,22 +17,25 @@ Uso:
 """
 
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 
-import joblib
 import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-# La ruta del modelo se configura por variable de entorno: en el repo
-# está en docker/, dentro del contenedor en otro lado
-MODELO = os.environ.get("MODELO", "docker/modelo.joblib")
+# inferencia.py es un script suelto, sin paquete: se agrega su carpeta
+# al path para importarlo. En el repo y en el contenedor la estructura
+# es la misma (api/ y docker/ lado a lado).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "docker"))
+import inferencia  # noqa: E402
 
 app = FastAPI(title="Precio de casas")
 
 # Se carga una sola vez, al arrancar: cargar el pipeline en cada pedido
 # haría lenta la API sin ningún beneficio
-pipeline = joblib.load(MODELO)
+pipeline = inferencia.cargar_modelo()
 # El pipeline recuerda con qué columnas y en qué orden se entrenó
 COLUMNAS = list(pipeline.feature_names_in_)
 preprocesamiento = pipeline.named_steps["preprocesamiento"]
@@ -123,6 +128,18 @@ class InfoModelo(BaseModel):
         "modificación del archivo)")
 
 
+def _a_tabla(casas: list[Casa]) -> pd.DataFrame:
+    """Arma la tabla que espera inferencia.predecir: una fila por casa.
+
+    Args:
+        casas: casas ya validadas por pydantic.
+
+    Returns:
+        Un DataFrame con las columnas en el orden del entrenamiento.
+    """
+    return pd.DataFrame([c.model_dump() for c in casas], columns=COLUMNAS)
+
+
 @app.get("/salud")
 def salud() -> dict[str, str]:
     """Responde ok si la API está levantada y el modelo cargado.
@@ -144,11 +161,8 @@ def predecir(casa: Casa) -> Prediccion:
     Returns:
         El precio estimado en miles de dólares.
     """
-    # Una fila con las columnas en el orden del entrenamiento; el
-    # pipeline escala, imputa y predice igual que en inferencia.py
-    fila = pd.DataFrame([casa.model_dump()], columns=COLUMNAS)
-    precio = pipeline.predict(fila)[0]
-    return Prediccion(precio_estimado=round(float(precio), 1))
+    precio = inferencia.predecir(pipeline, _a_tabla([casa])).iloc[0]
+    return Prediccion(precio_estimado=float(precio))
 
 
 @app.post("/predecir-lote")
@@ -161,12 +175,10 @@ def predecir_lote(casas: list[Casa]) -> PrediccionLote:
     Returns:
         Los precios estimados, uno por casa y en el mismo orden.
     """
-    # Un solo predict para todas: el pipeline está pensado para trabajar
+    # Un solo llamado para todas: el pipeline está pensado para trabajar
     # por lotes, y es mucho más rápido que un pedido por casa
-    filas = pd.DataFrame([c.model_dump() for c in casas], columns=COLUMNAS)
-    precios = pipeline.predict(filas)
-    return PrediccionLote(
-        precios_estimados=[round(float(p), 1) for p in precios])
+    precios = inferencia.predecir(pipeline, _a_tabla(casas))
+    return PrediccionLote(precios_estimados=precios.tolist())
 
 
 @app.post("/explicar")
@@ -185,14 +197,15 @@ def explicar(casa: Casa) -> Explicacion:
         El precio, el intercepto y la contribución de cada variable en
         miles de USD. precio = intercepto + suma de contribuciones.
     """
-    fila = pd.DataFrame([casa.model_dump()], columns=COLUMNAS)
+    fila = _a_tabla([casa])
+    # El precio sale de la misma función que en /predecir
+    precio = inferencia.predecir(pipeline, fila).iloc[0]
     # Se aplica el preprocesamiento aparte para ver la fila como la ve
     # el regresor: escalada, imputada y con las columnas reordenadas
     transformada = preprocesamiento.transform(fila)[0]
     contribuciones = modelo.coef_ * transformada
-    precio = modelo.intercept_ + contribuciones.sum()
     return Explicacion(
-        precio_estimado=round(float(precio), 1),
+        precio_estimado=float(precio),
         intercepto=round(float(modelo.intercept_), 2),
         contribuciones={nombre: round(float(valor), 2) for nombre, valor
                         in zip(NOMBRES_TRANSFORMADAS, contribuciones)},
@@ -209,7 +222,8 @@ def info_modelo() -> InfoModelo:
     """
     imputador = (preprocesamiento.named_transformers_["continuas"]
                  .named_steps["imputar"])
-    actualizado = datetime.fromtimestamp(os.path.getmtime(MODELO))
+    actualizado = datetime.fromtimestamp(
+        os.path.getmtime(inferencia.MODELO))
     return InfoModelo(
         regresor=type(modelo).__name__,
         # LinearRegression no tiene alpha: para él get_params no la trae

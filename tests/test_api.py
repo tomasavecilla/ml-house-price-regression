@@ -4,11 +4,16 @@ TestClient llama a la aplicación directamente, así que corren rápido
 y no necesitan un puerto libre.
 """
 
+from pathlib import Path
+
+import inferencia
+import pandas as pd
 from fastapi.testclient import TestClient
 
-from api.main import app
+from api.main import COLUMNAS, app
 
 cliente = TestClient(app)
+DOCKER = Path(__file__).resolve().parent.parent / "docker"
 
 # Una casa válida, la primera de docker/casas_ejemplo.csv
 CASA = {
@@ -90,3 +95,28 @@ def test_describe_el_modelo() -> None:
                                   "ElasticNet"}
     assert cuerpo["imputador"] in {"KNNImputer", "SimpleImputer"}
     assert len(cuerpo["columnas"]) == 12
+
+
+def test_api_y_lotes_dan_el_mismo_precio(tmp_path: Path) -> None:
+    """La API y el script por lotes predicen exactamente igual.
+
+    Las dos usan inferencia.predecir, así que no puede haber diferencias
+    ni siquiera de redondeo. Si alguien volviera a repetir la lógica en
+    la API, este test lo detecta.
+    """
+    entrada = DOCKER / "casas_ejemplo.csv"
+    salida = tmp_path / "precios.csv"
+    inferencia.main(str(entrada), str(salida))
+    por_lotes = pd.read_csv(salida)["precio_estimado"].tolist()
+
+    # La API valida los campos: los NaN del CSV viajan como null
+    casas = pd.read_csv(entrada)[COLUMNAS].astype(object)
+    casas = casas.where(casas.notna(), None).to_dict(orient="records")
+    respuesta = cliente.post("/predecir-lote", json=casas)
+    assert respuesta.status_code == 200
+    assert respuesta.json()["precios_estimados"] == por_lotes
+
+    # /predecir, una casa por pedido, también coincide
+    for casa, esperado in zip(casas, por_lotes):
+        individual = cliente.post("/predecir", json=casa).json()
+        assert individual["precio_estimado"] == esperado

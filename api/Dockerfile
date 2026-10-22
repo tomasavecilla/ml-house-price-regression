@@ -8,13 +8,13 @@ WORKDIR /app
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# El código de la API y el mismo binario que usa la inferencia por lotes
-COPY api/main.py .
-COPY docker/modelo.joblib .
-# main.py lee la ruta del modelo de esta variable
-ENV MODELO=/app/modelo.joblib
+# Misma estructura que el repo (api/ y docker/ lado a lado): main.py
+# importa docker/inferencia.py, el mismo código y el mismo binario que
+# usa la inferencia por lotes
+COPY api/main.py api/
+COPY docker/inferencia.py docker/modelo.joblib docker/
 
 # 0.0.0.0: escuchar en todas las interfaces, si no el puerto no se ve
 # desde afuera del contenedor
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

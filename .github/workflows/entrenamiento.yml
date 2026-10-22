@@ -8,10 +8,10 @@ name: Entrenamiento
 on:
   pull_request:
     paths:
-      - entrenar.py
-      - buscar_hiperparametros.py
+      - entrenamiento/entrenar.py
+      - entrenamiento/buscar_hiperparametros.py
       - requirements.txt
-      - house-prices-tp.csv
+      - datos/house-prices-tp.csv
 
 # Comentar en el PR necesita permiso de escritura sobre los PRs
 permissions:
@@ -40,7 +40,7 @@ jobs:
       # MLflow local, dentro de esta máquina: se descarta al terminar,
       # salvo lo que se guarda como artefacto más abajo
       - name: Correr la grilla de hiperparámetros
-        run: python buscar_hiperparametros.py --resumen resumen.md
+        run: python -m entrenamiento.buscar_hiperparametros --resumen resumen.md
 
       - name: Comentar el resultado en el PR
         env:

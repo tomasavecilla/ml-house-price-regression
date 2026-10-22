@@ -12,10 +12,10 @@ prácticas de MLOps.
 ```mermaid
 flowchart LR
     subgraph dev[Desarrollo]
-        nb[Notebook del TP] -.-> ent[entrenar.py]
+        nb[Notebook del TP] -.-> ent[entrenamiento/entrenar.py]
         ent --> mlf[(MLflow: runs y versiones)]
     end
-    mlf -- "@champion" --> exp[exportar_modelo.py]
+    mlf -- "@champion" --> exp[entrenamiento/exportar_modelo.py]
     subgraph prod[Producción]
         exp --> bin[docker/modelo.joblib]
         bin --> inf[docker/inferencia.py]
@@ -33,21 +33,21 @@ binario.
 
 | Ruta | Qué es |
 | --- | --- |
-| `TP_regresion_AA1.ipynb` | El TP original: EDA, modelos y comparación |
-| `entrenar.py` | Entrena el pipeline y lo registra en MLflow |
-| `buscar_hiperparametros.py` | Entrena la grilla de modelos e hiperparámetros |
-| `exportar_modelo.py` | Exporta la versión `@champion` a `docker/modelo.joblib` |
-| `inspeccionar_modelo.py` | Muestra qué aprendió el pipeline y viaja en el binario |
+| `notebooks/` | `TP_regresion_AA1.ipynb`, el TP original (EDA, modelos y comparación), y sus requirements |
+| `entrenamiento/entrenar.py` | Entrena el pipeline y lo registra en MLflow |
+| `entrenamiento/buscar_hiperparametros.py` | Entrena la grilla de modelos e hiperparámetros |
+| `entrenamiento/exportar_modelo.py` | Exporta la versión `@champion` a `docker/modelo.joblib` |
+| `entrenamiento/inspeccionar_modelo.py` | Muestra qué aprendió el pipeline y viaja en el binario |
 | `docker/` | Inferencia por lotes en un contenedor (ver su README) |
 | `api/` | El mismo modelo servido como API con FastAPI |
 | `app/` | La interfaz del tasador (HTML, CSS y JavaScript servidos por nginx), que solo habla con la API |
 | `docker-compose.yml` | Levanta la API y la app juntas |
 | `infra/` | Producción en AWS: la plantilla de CloudFormation y el compose con HTTPS |
 | `monitoreo/` | Genera lotes de casas nuevas y detecta drift con Evidently |
-| `reentrenar.py` | Reentrena con los lotes y compara contra producción |
+| `entrenamiento/reentrenar.py` | Reentrena con los lotes y compara contra producción |
 | `tests/` | Tests de la inferencia, la API y el modelo exportado |
 | `.github/workflows/` | CI (`ci.yml`), despliegue (`desplegar.yml`), entrenamiento en los PR (`entrenamiento.yml`) y reentrenamiento por eventos (`reentrenar.yml`) |
-| `datos/lotes/` | Donde llegan los lotes de casas nuevas |
+| `datos/` | El dataset (`house-prices-tp.csv`) y, en `lotes/`, donde llegan los lotes de casas nuevas |
 
 ## Cómo usarlo
 
@@ -59,8 +59,8 @@ pip install -r requirements.txt -r requirements-dev.txt -r api/requirements.txt
 Entrenar y comparar modelos:
 
 ```bash
-python entrenar.py --modelo lineal
-python entrenar.py --modelo elasticnet --alpha 0.1
+python -m entrenamiento.entrenar --modelo lineal
+python -m entrenamiento.entrenar --modelo elasticnet --alpha 0.1
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
@@ -70,13 +70,13 @@ y medio). Se compara por `rmse_cv` (validación cruzada sobre train), no
 por `rmse_test`, que queda para el modelo elegido:
 
 ```bash
-python buscar_hiperparametros.py
+python -m entrenamiento.buscar_hiperparametros
 ```
 
 En la UI, asignar el alias `champion` a la mejor versión y exportarla:
 
 ```bash
-python exportar_modelo.py
+python -m entrenamiento.exportar_modelo
 python docker/inferencia.py docker/casas_ejemplo.csv precios.csv
 ```
 
@@ -91,7 +91,7 @@ Monitorear un lote nuevo y reentrenar:
 ```bash
 python -m monitoreo.generar_lote --tipo zona-nueva      # o suba-mercado
 python -m monitoreo.detectar_drift datos/lotes/zona-nueva.csv
-python reentrenar.py
+python -m entrenamiento.reentrenar
 ```
 
 Tests y estilo (lo mismo que corre el CI):

@@ -10,7 +10,7 @@ import joblib
 import pytest
 from sklearn.pipeline import Pipeline
 
-import entrenar
+from entrenamiento import entrenar
 
 MODELO = Path(__file__).resolve().parent.parent / "docker" / "modelo.joblib"
 # El champion actual (ElasticNet, alpha 0.1) tiene RMSE 4.9 en test. Si
