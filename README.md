@@ -121,6 +121,10 @@ La API y la app están publicadas en una EC2 de AWS:
 - App: <https://tasador.3-140-54-207.sslip.io>
 - API: <https://api.3-140-54-207.sslip.io/docs>
 
+Está prendida de 13 a 00 (hora de Argentina); el resto del día la
+instancia se apaga sola para ahorrar crédito. Un merge fuera de ese
+horario no se despliega: se vuelve a correr `Despliegue` desde Actions.
+
 Cada merge a `main` que pasa el CI se despliega solo
 (`.github/workflows/desplegar.yml`):
 

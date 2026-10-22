@@ -212,6 +212,51 @@ Resources:
                   - ssm:ListCommandInvocations
                 Resource: "*"
 
+  # --- Autostop: la instancia se apaga a las 00 y se prende a las 13
+  # (hora de Argentina). Apagada no consume horas de cómputo ---
+  RolAgenda:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tasador-agenda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: scheduler.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: prender-y-apagar
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instancia}"
+
+  Apagar:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: tasador-apagar
+      ScheduleExpression: cron(0 0 * * ? *)
+      ScheduleExpressionTimezone: America/Argentina/Buenos_Aires
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        RoleArn: !GetAtt RolAgenda.Arn
+        Input: !Sub '{"InstanceIds": ["${Instancia}"]}'
+
+  Prender:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: tasador-prender
+      ScheduleExpression: cron(0 13 * * ? *)
+      ScheduleExpressionTimezone: America/Argentina/Buenos_Aires
+      FlexibleTimeWindow: {Mode: "OFF"}
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:startInstances
+        RoleArn: !GetAtt RolAgenda.Arn
+        Input: !Sub '{"InstanceIds": ["${Instancia}"]}'
+
 Outputs:
   InstanciaId:
     Value: !Ref Instancia
