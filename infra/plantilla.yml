@@ -1,0 +1,225 @@
+# Infraestructura de producción del tasador, como código (CloudFormation).
+# Crea todo lo necesario para publicar la API y la app en una EC2:
+#
+#   aws cloudformation deploy --stack-name tasador \
+#     --template-file infra/plantilla.yml --capabilities CAPABILITY_NAMED_IAM
+#
+# Borrar el stack borra todo, imágenes incluidas:
+#
+#   aws cloudformation delete-stack --stack-name tasador
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Tasador de casas - API y app en EC2 con despliegue desde GitHub
+
+Parameters:
+  TipoInstancia:
+    Type: String
+    Default: t3.micro
+  # La AMI más nueva de Amazon Linux 2023, resuelta por AWS al desplegar
+  Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  Repositorio:
+    Type: String
+    Default: tomasavecilla/ml-house-price-regression
+
+Resources:
+  # --- Registro de imágenes: GitHub Actions sube, la EC2 descarga ---
+  RegistroApi:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: precio-casas-api
+      EmptyOnDelete: true
+      # Busca vulnerabilidades conocidas en cada imagen que se sube
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1,
+                      "description": "Guardar solo las 10 últimas",
+                      "selection": {"tagStatus": "any",
+                                    "countType": "imageCountMoreThan",
+                                    "countNumber": 10},
+                      "action": {"type": "expire"}}]}
+
+  RegistroApp:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: precio-casas-app
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1,
+                      "description": "Guardar solo las 10 últimas",
+                      "selection": {"tagStatus": "any",
+                                    "countType": "imageCountMoreThan",
+                                    "countNumber": 10},
+                      "action": {"type": "expire"}}]}
+
+  # --- Red: solo HTTP y HTTPS. Sin SSH: se administra con Session Manager ---
+  GrupoSeguridad:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Tasador - solo HTTP y HTTPS
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+
+  # --- Permisos de la instancia: Session Manager y leer imágenes de ECR ---
+  RolInstancia:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tasador-instancia
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+
+  PerfilInstancia:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref RolInstancia]
+
+  # --- El servidor ---
+  Instancia:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref Ami
+      InstanceType: !Ref TipoInstancia
+      IamInstanceProfile: !Ref PerfilInstancia
+      SecurityGroupIds: [!GetAtt GrupoSeguridad.GroupId]
+      # Exige IMDSv2 para los metadatos de la instancia
+      MetadataOptions:
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {VolumeSize: 20, VolumeType: gp3, Encrypted: true}
+      Tags:
+        - {Key: Name, Value: tasador}
+      # Se ejecuta una sola vez, al crear la instancia
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+            https://github.com/docker/compose/releases/download/v5.6.1/docker-compose-linux-x86_64
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          systemctl enable --now docker
+          # 1 GB de swap: la t3.micro tiene solo 1 GB de memoria
+          dd if=/dev/zero of=/swapfile bs=1M count=1024
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo "/swapfile swap swap defaults 0 0" >> /etc/fstab
+          mkdir -p /opt/tasador
+
+  # IP fija, para que la dirección no cambie si la instancia se reinicia
+  Ip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: tasador}
+
+  AsociacionIp:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt Ip.AllocationId
+      InstanceId: !Ref Instancia
+
+  # --- El despliegue: un comando fijo que GitHub Actions solo puede
+  # disparar, sin poder cambiarlo. Baja la configuración del commit,
+  # descarga las imágenes de ese commit y reinicia los contenedores ---
+  Despliegue:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: tasador-desplegar
+      DocumentType: Command
+      # Si cambia el comando, se guarda como versión nueva del documento
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Despliega un commit del tasador
+        parameters:
+          Commit:
+            type: String
+            description: SHA completo del commit a desplegar
+            allowedPattern: "^[0-9a-f]{40}$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: desplegar
+            inputs:
+              runCommand:
+                - set -euo pipefail
+                - cd /opt/tasador
+                - !Sub "export REGISTRO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+                - export ETIQUETA={{ Commit }}
+                - !Sub
+                  - "export DOMINIO=${Guiones}.sslip.io"
+                  - Guiones: !Join ["-", !Split [".", !GetAtt Ip.PublicIp]]
+                - !Sub "URL=https://raw.githubusercontent.com/${Repositorio}/{{ Commit }}/infra"
+                - curl -fsSL -o compose.yml "$URL/compose.yml"
+                - curl -fsSL -o Caddyfile "$URL/Caddyfile"
+                - !Sub "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin $REGISTRO"
+                - docker compose pull
+                - docker compose up -d --remove-orphans --wait
+                - docker image prune -af
+                - docker compose ps
+
+  # --- El usuario de GitHub Actions: solo sube imágenes a estos dos
+  # registros y dispara el despliegue de esta instancia ---
+  UsuarioGitHub:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: tasador-github-actions
+      Policies:
+        - PolicyName: desplegar-tasador
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource:
+                  - !GetAtt RegistroApi.Arn
+                  - !GetAtt RegistroApp.Arn
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${Despliegue}"
+                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instancia}"
+              - Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+Outputs:
+  InstanciaId:
+    Value: !Ref Instancia
+  Registro:
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+  Documento:
+    Value: !Ref Despliegue
+  Dominio:
+    Value: !Sub
+      - "${Guiones}.sslip.io"
+      - Guiones: !Join ["-", !Split [".", !GetAtt Ip.PublicIp]]
