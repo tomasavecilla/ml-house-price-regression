@@ -1,6 +1,7 @@
 # Levanta la API y la app del tasador juntas:  docker compose up --build
 # Cada servicio es un contenedor; compose los conecta en una red propia
-# donde se encuentran por nombre (la app llama a http://api:8000).
+# donde se encuentran por nombre (nginx, en la app, reenvía /api/ a
+# http://api:8000).
 services:
   api:
     # Se construye desde la raíz porque necesita api/ y docker/modelo.joblib
@@ -20,11 +21,10 @@ services:
 
   app:
     build: app/
+    # nginx escucha en el 80 adentro del contenedor; afuera queda en
+    # localhost:8501
     ports:
-      - "8501:8501"
-    environment:
-      # El nombre del servicio funciona como host dentro de la red
-      API_URL: http://api:8000
+      - "8501:80"
     # La app arranca recién cuando la API pasó el healthcheck
     depends_on:
       api:

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<!-- Tasador de casas: la interfaz de los tasadores de la inmobiliaria.
+
+     Es una página estática: HTML, CSS y JavaScript sin ningún paso de
+     construcción. No tiene el modelo adentro: cada tasación es un pedido
+     a la API, que el navegador hace a /api/ y nginx reenvía al servicio
+     api:8000 (ver nginx.conf). Los campos del formulario los dibuja
+     tasador.js a partir de la lista CAMPOS, para no repetirlos acá. -->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tasador · Inmobiliaria</title>
+  <!-- Las fuentes vienen de Google Fonts; sin internet el navegador usa
+       la que sigue en la lista de estilos.css -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?display=swap&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600">
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 7-7 7-7-7z' fill='%231d6f68'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="encabezado">
+    <div class="marca">
+      <span class="rombo" aria-hidden="true">◆</span>
+      Tasador <span class="marca-sub">Inmobiliaria</span>
+    </div>
+    <!-- Estado de la API: tasador.js lo completa con /api/modelo -->
+    <span id="estado-api" class="pildora espera">● Consultando la API…</span>
+  </header>
+
+  <nav class="pestanias" role="tablist">
+    <button class="pestania activa" role="tab" data-panel="panel-casa"
+            aria-selected="true">Tasar una casa</button>
+    <button class="pestania" role="tab" data-panel="panel-lote"
+            aria-selected="false">Tasar un lote (CSV)</button>
+  </nav>
+
+  <!-- Una casa: formulario a la izquierda, resultado a la derecha -->
+  <main id="panel-casa" class="panel activa" role="tabpanel">
+    <form id="formulario" class="tarjeta formulario" novalidate>
+      <!-- Las secciones y sus campos los genera tasador.js -->
+      <div id="secciones"></div>
+
+      <p class="eyebrow">Datos que no conozco</p>
+      <p class="ayuda">Marcá los que no tenés: el modelo los completa con
+        lo que aprendió en el entrenamiento.</p>
+      <div id="desconocidos" class="chips"></div>
+
+      <div class="acciones">
+        <button type="submit" class="boton primario">Tasar</button>
+        <button type="button" id="restablecer" class="boton">
+          Volver a la casa típica</button>
+      </div>
+    </form>
+
+    <section class="tarjeta resultado" aria-live="polite">
+      <p class="eyebrow">Precio sugerido</p>
+      <div id="precio" class="precio">—</div>
+      <p id="detalle" class="detalle">Completá los datos y apretá Tasar.</p>
+      <p id="imputados" class="nota oculto">Los datos que no conocías los
+        completó el modelo con lo que aprendió en el entrenamiento.</p>
+
+      <p class="eyebrow">¿Por qué este precio?</p>
+      <p class="leyenda">
+        <span class="muestra sube"></span> sube el precio
+        <span class="muestra baja"></span> lo baja
+      </p>
+      <!-- El gráfico de aportes, dibujado en SVG por tasador.js -->
+      <div id="grafico" class="grafico"></div>
+      <p id="explicacion" class="nota"></p>
+      <p id="error" class="mensaje error oculto"></p>
+    </section>
+  </main>
+
+  <!-- Un lote: un CSV con varias casas, una por fila -->
+  <section id="panel-lote" class="panel" role="tabpanel">
+    <div class="tarjeta lote">
+      <p class="eyebrow">Tasar un lote</p>
+      <p class="ayuda">Un CSV con las 12 columnas del modelo, una casa por
+        fila. Las celdas vacías las completa el modelo.</p>
+      <div class="acciones">
+        <label class="boton" for="archivo">Elegir un CSV</label>
+        <input type="file" id="archivo" accept=".csv,text/csv" hidden>
+        <button type="button" id="ejemplo" class="boton">
+          Descargar un CSV de ejemplo</button>
+        <span id="nombre-archivo" class="ayuda"></span>
+      </div>
+      <p id="mensaje-lote" class="mensaje oculto"></p>
+      <div id="tabla-lote" class="tabla-scroll"></div>
+      <div class="acciones">
+        <button type="button" id="descargar" class="boton primario oculto">
+          Descargar con precios</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="pie">
+    Aprendizaje Automático 1 · TUIA · El precio sale de un modelo de
+    regresión lineal; es una referencia, no una tasación oficial.
+  </footer>
+
+  <script src="tasador.js"></script>
+</body>
+</html>

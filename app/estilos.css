@@ -1,0 +1,446 @@
+/* Estilos del tasador, con la paleta de las diapositivas de la materia.
+   Está pensado para proyectarse en un aula: texto grande, el precio bien
+   visible y el gráfico de aportes legible desde el fondo. */
+
+:root {
+  --primario: #1d6f68;
+  --primario-suave: #e4efed;
+  --fondo: #f6f4ef;
+  --secundario: #ebe8e0;
+  --tarjeta: #fdfcfa;
+  --borde: #e4e0d6;
+  --texto: #1c2226;
+  --texto-suave: #4a5054;
+  --gris: #7a807f;
+  /* Para lo que baja el precio: naranja, el otro color de las slides */
+  --naranja: #d07d2e;
+  --naranja-suave: #f8e9dc;
+  --sans: "IBM Plex Sans", "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  --radio: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 1.6rem clamp(1rem, 3vw, 2.5rem) 2rem;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.4;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+
+/* Encabezado: marca a la izquierda, estado de la API a la derecha */
+.encabezado {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.marca {
+  font-size: 1.8rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.rombo { color: var(--primario); }
+
+.marca-sub {
+  color: var(--gris);
+  font-weight: 400;
+  margin-left: 0.4rem;
+}
+
+.pildora {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.pildora.ok {
+  color: var(--primario);
+  border-color: var(--primario);
+  background: var(--primario-suave);
+}
+
+.pildora.error {
+  color: #9a4a17;
+  border-color: var(--naranja);
+  background: var(--naranja-suave);
+}
+
+.pildora.espera {
+  color: var(--gris);
+  border-color: var(--borde);
+  background: var(--secundario);
+}
+
+/* Pestañas: una casa o un lote */
+.pestanias {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--borde);
+  margin-bottom: 1.2rem;
+}
+
+.pestania {
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  padding: 0.6rem 1rem;
+  font: inherit;
+  font-weight: 500;
+  color: var(--texto-suave);
+  cursor: pointer;
+}
+
+.pestania.activa {
+  color: var(--primario);
+  border-bottom-color: var(--primario);
+}
+
+.panel { display: none; }
+.panel.activa { display: block; }
+
+/* El panel de una casa: formulario (58 %) y resultado (42 %) */
+#panel-casa.activa {
+  display: grid;
+  grid-template-columns: 58fr 42fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.tarjeta {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: 0 1px 2px rgba(28, 34, 38, 0.04);
+  padding: 1.3rem 1.6rem;
+}
+
+/* El resultado acompaña el scroll del formulario */
+.resultado {
+  position: sticky;
+  top: 1rem;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primario);
+  margin: 1rem 0 0.5rem;
+}
+
+.eyebrow:first-child { margin-top: 0; }
+
+.ayuda {
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+  margin: 0 0 0.6rem;
+}
+
+/* Campos de a tres por fila */
+.campos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.7rem 1rem;
+}
+
+.campo { display: flex; flex-direction: column; gap: 0.25rem; }
+
+.campo label {
+  font-size: 0.82rem;
+  color: var(--texto-suave);
+  cursor: help;
+}
+
+.campo code {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--gris);
+}
+
+.campo input,
+.campo select {
+  font: inherit;
+  font-size: 1rem;
+  color: var(--texto);
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  width: 100%;
+}
+
+.campo input:focus,
+.campo select:focus {
+  outline: 2px solid var(--primario);
+  outline-offset: -1px;
+}
+
+.campo input:disabled {
+  background: var(--secundario);
+  color: var(--gris);
+  text-decoration: line-through;
+}
+
+/* CHAS: un interruptor sí/no */
+.interruptor {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.interruptor input { display: none; }
+
+.interruptor .pista {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--borde);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.interruptor .pista::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.interruptor input:checked + .pista { background: var(--primario); }
+.interruptor input:checked + .pista::after { left: 21px; }
+
+/* Chips para marcar los datos que no se conocen */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: #fff;
+  color: var(--texto-suave);
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip input { display: none; }
+
+.chip:has(input:checked) {
+  background: var(--primario-suave);
+  border-color: var(--primario);
+  color: var(--primario);
+}
+
+.acciones {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 1.2rem;
+}
+
+.boton {
+  font: inherit;
+  font-weight: 500;
+  padding: 0.65rem 1.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--borde);
+  background: #fff;
+  color: var(--texto);
+  cursor: pointer;
+}
+
+.boton:hover { border-color: var(--primario); }
+
+.boton.primario {
+  background: var(--primario);
+  border-color: var(--primario);
+  color: #fff;
+  font-size: 1.05rem;
+  padding-inline: 2.2rem;
+}
+
+.boton.primario:hover { background: #185e58; }
+
+.boton:disabled { opacity: 0.6; cursor: wait; }
+
+/* El precio: lo primero que se tiene que ver desde el fondo del aula */
+.precio {
+  font-family: var(--mono);
+  font-size: clamp(2.4rem, 4vw, 3.4rem);
+  font-weight: 500;
+  color: var(--primario);
+  line-height: 1.1;
+  margin: 0.2rem 0;
+  transition: opacity 0.15s;
+}
+
+.resultado.cargando .precio { opacity: 0.4; }
+
+.detalle {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  color: var(--texto-suave);
+  margin: 0 0 0.4rem;
+}
+
+.detalle .sube { color: var(--primario); }
+.detalle .baja { color: var(--naranja); }
+
+.nota {
+  font-size: 0.85rem;
+  color: var(--texto-suave);
+  margin: 0.5rem 0 0;
+}
+
+.leyenda {
+  font-size: 0.82rem;
+  color: var(--texto-suave);
+  margin: 0 0 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.muestra {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.muestra.sube { background: var(--primario); }
+.muestra.baja { background: var(--naranja); margin-left: 0.6rem; }
+
+/* El gráfico de aportes */
+.grafico { position: relative; }
+
+.grafico svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--mono);
+}
+
+.grafico .nombre { font-size: 12px; fill: var(--texto); }
+.grafico .valor { font-size: 12px; fill: var(--texto); }
+.grafico .eje { font-size: 10px; fill: var(--gris); }
+.grafico .grilla { stroke: var(--secundario); stroke-width: 1; }
+.grafico .cero { stroke: var(--gris); stroke-width: 1; }
+.grafico .barra.sube { fill: var(--primario); }
+.grafico .barra.baja { fill: var(--naranja); }
+.grafico .fila:hover .barra { opacity: 0.8; }
+.grafico .fila:hover .nombre { font-weight: 500; }
+
+/* Globo que aparece al pasar el mouse por una barra */
+.globo {
+  position: absolute;
+  pointer-events: none;
+  background: var(--texto);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  white-space: nowrap;
+  transform: translate(-50%, -120%);
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.globo.visible { opacity: 1; }
+
+/* Mensajes de error y de éxito */
+.mensaje {
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin: 0.8rem 0 0;
+}
+
+.mensaje.error {
+  background: var(--naranja-suave);
+  border: 1px solid var(--naranja);
+  color: #9a4a17;
+}
+
+.mensaje.ok {
+  background: var(--primario-suave);
+  border: 1px solid var(--primario);
+  color: var(--primario);
+}
+
+.oculto { display: none !important; }
+
+/* Tabla del lote tasado */
+.tabla-scroll { overflow-x: auto; margin-top: 1rem; }
+
+table {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  width: 100%;
+}
+
+th, td {
+  text-align: right;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--borde);
+  white-space: nowrap;
+}
+
+th {
+  color: var(--texto-suave);
+  font-weight: 500;
+  background: var(--secundario);
+}
+
+td.precio-lote { color: var(--primario); font-weight: 500; }
+td.imputado { color: var(--gris); font-style: italic; }
+
+.pie {
+  margin-top: 2rem;
+  font-size: 0.8rem;
+  color: var(--gris);
+  text-align: center;
+}
+
+/* Pantallas angostas: una sola columna y campos de a dos */
+@media (max-width: 960px) {
+  #panel-casa.activa { grid-template-columns: 1fr; }
+  .resultado { position: static; }
+  .campos { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 520px) {
+  .campos { grid-template-columns: 1fr; }
+  .marca { font-size: 1.4rem; }
+  .pildora { white-space: normal; }
+}

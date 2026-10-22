@@ -2,7 +2,7 @@
 # alguien entra. DOMINIO es <ip>.sslip.io: sslip.io resuelve cualquier
 # nombre que contenga una IP a esa misma IP.
 tasador.{$DOMINIO} {
-	reverse_proxy app:8501
+	reverse_proxy app:80
 }
 
 api.{$DOMINIO} {

@@ -1,20 +1,13 @@
 # La interfaz del tasador:  docker build -t precio-casas-app app/
-FROM python:3.14-slim
+# Es una página estática, así que alcanza con nginx: sirve los archivos
+# y reenvía /api/ a la API (ver nginx.conf). La imagen pesa menos de
+# 100 MB, contra los cientos que pesaba la versión en Python
+FROM nginx:1.29-alpine
 
-WORKDIR /app
+# La configuración propia reemplaza la que trae la imagen
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Dependencias primero, para aprovechar el cache de capas
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# La página. Acá no viaja ningún modelo: la app solo habla con la API
+COPY index.html estilos.css tasador.js /usr/share/nginx/html/
 
-# El código y el tema. Acá no viaja ningún modelo: la app solo habla
-# con la API
-COPY app.py .
-COPY .streamlit .streamlit
-# Dónde está la API; docker-compose.yml la sobreescribe con el nombre
-# del servicio
-ENV API_URL=http://localhost:8000
-
-EXPOSE 8501
-CMD ["streamlit", "run", "app.py", "--server.port=8501", \
-     "--server.address=0.0.0.0"]
+EXPOSE 80
