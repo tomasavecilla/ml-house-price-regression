@@ -227,6 +227,7 @@ Resources:
                 - cd /opt/tasador
                 - !Sub "export REGISTRO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
                 - export ETIQUETA={{ Commit }}
+                - !Sub "export AWS_DEFAULT_REGION=${AWS::Region}"
                 - !Sub "export BUCKET=${BucketMlflow}"
                 # La contraseña del admin de MLflow no está en el repo: se
                 # lee de SSM Parameter Store, descifrada, solo en la instancia

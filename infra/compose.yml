@@ -3,7 +3,7 @@
 # Actions (no se construye nada en el servidor) y Caddy adelante para
 # servir todo por HTTPS.
 # El despliegue (infra/plantilla.yml) define REGISTRO, ETIQUETA, DOMINIO,
-# BUCKET, MLFLOW_ADMIN_PASSWORD y MLFLOW_CLAVE_FLASK.
+# BUCKET, AWS_DEFAULT_REGION, MLFLOW_ADMIN_PASSWORD y MLFLOW_CLAVE_FLASK.
 services:
   api:
     image: ${REGISTRO}/precio-casas-api:${ETIQUETA}
@@ -46,6 +46,9 @@ services:
       # de LLMs), que no usamos: levantan una docena de procesos Python y
       # se comen más de 1 GB, que esta instancia no tiene
       MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+      # La región del bucket: sin esto boto3 firma las URLs de descarga de
+      # los modelos para us-east-1 y S3 las rechaza
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
     volumes:
       - ./datos:/datos
       - ./mlflow/basic_auth.ini:/config/basic_auth.ini:ro
