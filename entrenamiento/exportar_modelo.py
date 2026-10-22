@@ -22,7 +22,9 @@ from datetime import datetime, timezone
 
 import joblib
 import mlflow
+import numpy as np
 from mlflow.entities.model_registry import ModelVersion
+from sklearn.pipeline import Pipeline
 
 from entrenamiento import entrenar
 
@@ -48,6 +50,31 @@ def version_valida(texto: str) -> int:
         raise argparse.ArgumentTypeError(
             f"'{texto}' no es un número de versión (entero positivo)")
     return int(texto)
+
+
+def es_el_mismo_modelo(nuevo: Pipeline, actual: Pipeline) -> bool:
+    """Dice si dos pipelines predicen exactamente igual.
+
+    Comparar los bytes de los archivos no sirve: el mismo modelo,
+    guardado con otra versión de Python o de joblib, da bytes
+    distintos. Se compara lo que importa, las predicciones, sobre las
+    casas del dataset (con sus valores faltantes, para que también
+    cuente la imputación).
+
+    Args:
+        nuevo: el pipeline recién descargado del registro.
+        actual: el pipeline que ya está en DESTINO.
+
+    Returns:
+        True si las dos predicciones son idénticas.
+    """
+    casas = entrenar.leer_dataset().drop(columns=[entrenar.OBJETIVO])
+    try:
+        return bool(np.array_equal(nuevo.predict(casas),
+                                   actual.predict(casas)))
+    except ValueError:
+        # Columnas distintas: no pueden ser el mismo modelo
+        return False
 
 
 def escribir_metadatos(cliente: mlflow.MlflowClient,
@@ -106,8 +133,16 @@ def main() -> None:
         origen = f"models:/{NOMBRE_MODELO}/{args.version}"
         detalle = str(args.version)
     if not args.solo_metadatos:
-        joblib.dump(mlflow.sklearn.load_model(origen), DESTINO)
-        print(f"Versión {detalle} exportada a {DESTINO}")
+        pipeline = mlflow.sklearn.load_model(origen)
+        # Si el modelo ya está exportado, se deja el archivo como está:
+        # así el repo no ve un cambio donde no lo hay
+        if DESTINO.exists() and es_el_mismo_modelo(
+                pipeline, joblib.load(DESTINO)):
+            print(f"Versión {detalle}: es el mismo modelo que ya está "
+                  f"en {DESTINO}, el archivo no cambia")
+        else:
+            joblib.dump(pipeline, DESTINO)
+            print(f"Versión {detalle} exportada a {DESTINO}")
     escribir_metadatos(cliente, version)
     print(f"Metadatos de la versión {detalle} en {METADATOS}")
 

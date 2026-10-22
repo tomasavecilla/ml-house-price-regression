@@ -86,6 +86,44 @@ def test_exporta_una_version_sin_alias(
     assert json.loads(metadatos.read_text())["version"] == int(registro)
 
 
+def test_no_reescribe_un_modelo_que_ya_esta(
+        registro: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si el modelo ya está exportado, aunque con otros bytes, deja el
+    archivo como está."""
+    destino = tmp_path / "modelo.joblib"
+    # El mismo pipeline guardado comprimido: otros bytes, mismo modelo
+    joblib.dump(joblib.load(MODELO), destino, compress=3)
+    antes = destino.read_bytes()
+    monkeypatch.setattr(exportar_modelo, "DESTINO", destino)
+    monkeypatch.setattr(exportar_modelo, "METADATOS",
+                        tmp_path / "modelo.json")
+    monkeypatch.setattr(sys, "argv", ["exportar_modelo", "--version",
+                                      registro])
+    exportar_modelo.main()
+    assert destino.read_bytes() == antes
+
+
+def test_reescribe_un_modelo_distinto(
+        registro: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si el modelo exportado es otro, lo reemplaza."""
+    destino = tmp_path / "modelo.joblib"
+    distinto = joblib.load(MODELO)
+    distinto.named_steps["modelo"].intercept_ += 1
+    joblib.dump(distinto, destino)
+    monkeypatch.setattr(exportar_modelo, "DESTINO", destino)
+    monkeypatch.setattr(exportar_modelo, "METADATOS",
+                        tmp_path / "modelo.json")
+    monkeypatch.setattr(sys, "argv", ["exportar_modelo", "--version",
+                                      registro])
+    exportar_modelo.main()
+    reemplazado = joblib.load(destino)
+    original = joblib.load(MODELO)
+    assert (reemplazado.named_steps["modelo"].intercept_
+            == original.named_steps["modelo"].intercept_)
+
+
 def test_solo_metadatos_no_toca_el_binario(
         registro: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
