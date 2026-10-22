@@ -49,6 +49,9 @@ services:
       # La región del bucket: sin esto boto3 firma las URLs de descarga de
       # los modelos para us-east-1 y S3 las rechaza
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      # Y el endpoint regional: con el global (s3.amazonaws.com) S3
+      # responde con una redirección que invalida la firma de la URL
+      MLFLOW_S3_ENDPOINT_URL: https://s3.${AWS_DEFAULT_REGION}.amazonaws.com
     volumes:
       - ./datos:/datos
       - ./mlflow/basic_auth.ini:/config/basic_auth.ini:ro
