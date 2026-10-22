@@ -227,6 +227,7 @@ Resources:
                 - cd /opt/tasador
                 - !Sub "export REGISTRO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
                 - export ETIQUETA={{ Commit }}
+                - !Sub "export AWS_DEFAULT_REGION=${AWS::Region}"
                 - !Sub "export BUCKET=${BucketMlflow}"
                 # La contraseña del admin de MLflow no está en el repo: se
                 # lee de SSM Parameter Store, descifrada, solo en la instancia
@@ -255,6 +256,10 @@ Resources:
                 - !Sub "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin $REGISTRO"
                 - docker compose pull
                 - docker compose up -d --remove-orphans --wait
+                # Si el Caddyfile cambió, el contenedor de Caddy no se recrea
+                # y sigue con la configuración vieja: hay que pedirle que la
+                # vuelva a leer
+                - docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
                 - docker image prune -af
                 # Respaldo diario de las bases de MLflow (un timer de systemd)
                 - curl -fsSL -o /etc/systemd/system/tasador-respaldo.service "$URL/respaldo/tasador-respaldo.service"
