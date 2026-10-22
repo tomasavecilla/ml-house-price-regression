@@ -1,0 +1,11 @@
+[Unit]
+Description=Respaldo diario de las bases de MLflow
+
+[Timer]
+# 18:00 UTC = 15:00 en Argentina, con la instancia prendida (de 13 a 00)
+OnCalendar=*-*-* 18:00:00 UTC
+# Si la instancia estaba apagada a esa hora, corre al prenderse
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,7 +1,9 @@
-# Producción: los mismos dos servicios que docker-compose.yml, pero con
-# las imágenes ya construidas por GitHub Actions (no se construye nada en
-# el servidor) y Caddy adelante para servir todo por HTTPS.
-# El despliegue (infra/plantilla.yml) define REGISTRO, ETIQUETA y DOMINIO.
+# Producción: los mismos dos servicios que docker-compose.yml, más el
+# servidor de MLflow, pero con las imágenes ya construidas por GitHub
+# Actions (no se construye nada en el servidor) y Caddy adelante para
+# servir todo por HTTPS.
+# El despliegue (infra/plantilla.yml) define REGISTRO, ETIQUETA, DOMINIO,
+# BUCKET, MLFLOW_ADMIN_PASSWORD y MLFLOW_CLAVE_FLASK.
 services:
   api:
     image: ${REGISTRO}/precio-casas-api:${ETIQUETA}
@@ -20,8 +22,65 @@ services:
       api:
         condition: service_healthy
 
+  # El servidor de MLflow: runs y registro de modelos compartidos.
+  # Las bases sqlite (runs, modelos y usuarios) viven en ./datos, una
+  # carpeta del host: sobrevive a los despliegues y a los reinicios.
+  # Los artefactos (modelos, gráficos) van al bucket de S3 y el servidor
+  # los sirve como proxy (--serve-artifacts): los clientes solo hablan con
+  # MLflow y no necesitan credenciales de AWS. El servidor sí: usa el rol
+  # de la instancia.
+  mlflow:
+    image: ${REGISTRO}/precio-casas-mlflow:${ETIQUETA}
+    restart: unless-stopped
+    # La instancia tiene 2 GB para todo: si MLflow se pasa, Docker lo
+    # reinicia a él en vez de dejar sin memoria a la API
+    mem_limit: 600m
+    environment:
+      MLFLOW_AUTH_CONFIG_PATH: /config/basic_auth.ini
+      # Solo crea al admin la primera vez (ver mlflow/basic_auth.ini)
+      MLFLOW_AUTH_ADMIN_PASSWORD: ${MLFLOW_ADMIN_PASSWORD}
+      # Clave fija para la protección CSRF de la UI: con basic-auth MLflow
+      # no arranca sin ella (el despliegue la genera una vez en la instancia)
+      MLFLOW_FLASK_SERVER_SECRET_KEY: ${MLFLOW_CLAVE_FLASK}
+      # Apaga las tareas en segundo plano de MLflow (evaluaciones, gateway
+      # de LLMs), que no usamos: levantan una docena de procesos Python y
+      # se comen más de 1 GB, que esta instancia no tiene
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+    volumes:
+      - ./datos:/datos
+      - ./mlflow/basic_auth.ini:/config/basic_auth.ini:ro
+    # --app-name basic-auth: exige usuario y contraseña en toda la API.
+    # --workers 1: son 4 por defecto y cada uno ocupa ~250 MB. Para una
+    # clase sobra con uno (y sqlite no rinde mejor con más).
+    # --allowed-hosts / --cors-allowed-origins: MLflow solo acepta pedidos
+    # dirigidos a su dominio (protege contra DNS rebinding y CORS). Sin
+    # esto rechaza el dominio de sslip.io; localhost:5000 es para el
+    # chequeo de salud de más abajo.
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --workers=1
+      - --app-name=basic-auth
+      - --backend-store-uri=sqlite:////datos/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination=s3://${BUCKET}/artefactos
+      - --allowed-hosts=mlflow.${DOMINIO},localhost:5000
+      - --cors-allowed-origins=https://mlflow.${DOMINIO}
+    healthcheck:
+      # /health no pide usuario: sirve para saber si el servidor está vivo
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      # La primera vez crea las bases y tarda en arrancar
+      start_period: 30s
+
   # Recibe todo el tráfico, saca los certificados HTTPS solo y reparte:
-  # tasador.<dominio> va a la app y api.<dominio> a la API
+  # tasador.<dominio> va a la app, api.<dominio> a la API y
+  # mlflow.<dominio> a MLflow
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -39,6 +98,7 @@ services:
     depends_on:
       - api
       - app
+      - mlflow
 
 volumes:
   caddy_datos:
