@@ -128,6 +128,11 @@ jobs:
         run: |
           if [ "$EN_MAIN" != "true" ]; then
             estado="Corrida de prueba fuera de main: el modelo se exportó y pasó los tests, pero no se commiteó, el alias no cambió y no se desplegó."
+            if [ "$CAMBIO" = "true" ]; then
+              estado="$estado En main habría commiteado un modelo distinto al del repo."
+            else
+              estado="$estado El modelo y sus metadatos ya son idénticos a los del repo: en main no habría nada que commitear."
+            fi
           elif [ "$CAMBIO" = "true" ]; then
             estado="Modelo commiteado en main, alias @champion asignado y despliegue disparado (workflow Despliegue)."
           else
