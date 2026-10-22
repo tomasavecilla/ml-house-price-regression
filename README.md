@@ -40,7 +40,7 @@ binario.
 | `inspeccionar_modelo.py` | Muestra qué aprendió el pipeline y viaja en el binario |
 | `docker/` | Inferencia por lotes en un contenedor (ver su README) |
 | `api/` | El mismo modelo servido como API con FastAPI |
-| `app/` | La interfaz del tasador (Streamlit), que solo habla con la API |
+| `app/` | La interfaz del tasador (HTML, CSS y JavaScript servidos por nginx), que solo habla con la API |
 | `docker-compose.yml` | Levanta la API y la app juntas |
 | `infra/` | Producción en AWS: la plantilla de CloudFormation y el compose con HTTPS |
 | `monitoreo/` | Genera lotes de casas nuevas y detecta drift con Evidently |
@@ -105,7 +105,10 @@ pytest
 
 La app que usaría un tasador de la inmobiliaria: carga una casa, ve el
 precio sugerido y qué variables lo empujan hacia arriba o hacia abajo.
-No tiene el modelo adentro: cada tasación es un pedido a la API.
+No tiene el modelo adentro: cada tasación es un pedido a la API. Es una
+página estática (`app/index.html`, `estilos.css`, `tasador.js`) sin
+ningún paso de construcción; nginx la sirve y reenvía `/api/` a la API,
+así el navegador habla siempre con el mismo origen y no hace falta CORS.
 
 ```bash
 docker compose up --build

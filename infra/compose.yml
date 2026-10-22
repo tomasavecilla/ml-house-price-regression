@@ -16,8 +16,6 @@ services:
   app:
     image: ${REGISTRO}/precio-casas-app:${ETIQUETA}
     restart: unless-stopped
-    environment:
-      API_URL: http://api:8000
     depends_on:
       api:
         condition: service_healthy
